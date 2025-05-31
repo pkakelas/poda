@@ -1,7 +1,7 @@
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use crate::storage::{ChunkStorage, ChunkMetadata, ChunkData};
+use crate::storage::{ChunkStorage, ChunkMetadata, Chunk};
 use anyhow::Result;
 use serde_json;
 use async_trait::async_trait;
@@ -51,7 +51,7 @@ impl ChunkStorage for FileStorage {
         Ok(())
     }
 
-    async fn retrieve(&self, chunk_id: &str) -> Result<Option<ChunkData>> {
+    async fn retrieve(&self, chunk_id: &str) -> Result<Option<Chunk>> {
         let chunk_path = self.chunk_path(chunk_id);
         let metadata_path = self.metadata_path(chunk_id);
 
@@ -69,7 +69,7 @@ impl ChunkStorage for FileStorage {
         let metadata_file = File::open(&metadata_path)?;
         let metadata: ChunkMetadata = serde_json::from_reader(metadata_file)?;
 
-        Ok(Some(ChunkData { data, metadata }))
+        Ok(Some(Chunk { data, metadata }))
     }
 
     async fn exists(&self, chunk_id: &str) -> Result<bool> {

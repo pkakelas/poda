@@ -1,12 +1,12 @@
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
+use storage_provider::storage::ChunkStorage;
 use tokio::time::sleep;
 use reqwest::StatusCode;
 use serde_json::json;
 use storage_provider::{
     file_storage::FileStorage,
     http::start_server,
-    ChunkStorage,
     ChunkMetadata,
 };
 use tempfile::TempDir;

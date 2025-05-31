@@ -2,8 +2,8 @@ pub mod storage;
 pub mod file_storage;
 pub mod http;
 pub mod utils;
+pub mod pod;
 
-// Re-export commonly used types
-pub use storage::{ChunkStorage, ChunkMetadata, ChunkData};
+pub use storage::{ChunkMetadata, Chunk};
 pub use file_storage::FileStorage;
 pub use http::start_server; 

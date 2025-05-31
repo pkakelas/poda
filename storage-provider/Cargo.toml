@@ -13,6 +13,7 @@ warp = "0.3.7"
 sha2 = "0.10.9"
 base64 = "0.22.1"
 hex = "0.4.3"
+pod-sdk = { git = "https://github.com/podnetwork/pod-sdk" }
 
 [dev-dependencies]
 tempfile = "3.10.1"

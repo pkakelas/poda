@@ -3,7 +3,7 @@ use std::time::SystemTime;
 use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChunkData {
+pub struct Chunk {
     pub data: Vec<u8>,
     pub metadata: ChunkMetadata,
 }
@@ -25,7 +25,7 @@ pub struct StoredChunk {
 #[async_trait::async_trait]
 pub trait ChunkStorage {
     async fn store(&self, chunk_id: &str, data: &[u8], metadata: ChunkMetadata) -> Result<()>;
-    async fn retrieve(&self, chunk_id: &str) -> Result<Option<ChunkData>>;
+    async fn retrieve(&self, chunk_id: &str) -> Result<Option<Chunk>>;
     async fn exists(&self, chunk_id: &str) -> Result<bool>;
     async fn delete(&self, chunk_id: &str) -> Result<bool>;
     async fn list_chunks(&self, offset: usize, limit: usize) -> Result<Vec<String>>;
