@@ -1,0 +1,196 @@
+[
+    {
+        "type": "function",
+        "name": "commitments",
+        "inputs": [
+            {
+                "name": "",
+                "type": "bytes32",
+                "internalType": "bytes32"
+            },
+            {
+                "name": "",
+                "type": "uint256",
+                "internalType": "uint256"
+            }
+        ],
+        "outputs": [
+            {
+                "name": "provider",
+                "type": "address",
+                "internalType": "address"
+            },
+            {
+                "name": "namespace",
+                "type": "string",
+                "internalType": "string"
+            },
+            {
+                "name": "commitment",
+                "type": "bytes32",
+                "internalType": "bytes32"
+            },
+            {
+                "name": "dataSize",
+                "type": "uint256",
+                "internalType": "uint256"
+            },
+            {
+                "name": "timestamp",
+                "type": "uint256",
+                "internalType": "uint256"
+            }
+        ],
+        "stateMutability": "view"
+    },
+    {
+        "type": "function",
+        "name": "getProvider",
+        "inputs": [],
+        "outputs": [
+            {
+                "name": "",
+                "type": "tuple",
+                "internalType": "struct Poda.Provider",
+                "components": [
+                    {
+                        "name": "name",
+                        "type": "string",
+                        "internalType": "string"
+                    },
+                    {
+                        "name": "url",
+                        "type": "string",
+                        "internalType": "string"
+                    },
+                    {
+                        "name": "provider",
+                        "type": "address",
+                        "internalType": "address"
+                    }
+                ]
+            }
+        ],
+        "stateMutability": "view"
+    },
+    {
+        "type": "function",
+        "name": "providerIds",
+        "inputs": [
+            {
+                "name": "",
+                "type": "address",
+                "internalType": "address"
+            }
+        ],
+        "outputs": [
+            {
+                "name": "",
+                "type": "bool",
+                "internalType": "bool"
+            }
+        ],
+        "stateMutability": "view"
+    },
+    {
+        "type": "function",
+        "name": "providers",
+        "inputs": [
+            {
+                "name": "",
+                "type": "address",
+                "internalType": "address"
+            }
+        ],
+        "outputs": [
+            {
+                "name": "name",
+                "type": "string",
+                "internalType": "string"
+            },
+            {
+                "name": "url",
+                "type": "string",
+                "internalType": "string"
+            },
+            {
+                "name": "provider",
+                "type": "address",
+                "internalType": "address"
+            }
+        ],
+        "stateMutability": "view"
+    },
+    {
+        "type": "function",
+        "name": "registerProvider",
+        "inputs": [
+            {
+                "name": "name",
+                "type": "string",
+                "internalType": "string"
+            },
+            {
+                "name": "url",
+                "type": "string",
+                "internalType": "string"
+            }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+    },
+    {
+        "type": "function",
+        "name": "submitCommitment",
+        "inputs": [
+            {
+                "name": "namespace",
+                "type": "string",
+                "internalType": "string"
+            },
+            {
+                "name": "commitment",
+                "type": "bytes32",
+                "internalType": "bytes32"
+            },
+            {
+                "name": "dataSize",
+                "type": "uint256",
+                "internalType": "uint256"
+            }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+    },
+    {
+        "type": "event",
+        "name": "CommitmentSubmitted",
+        "inputs": [
+            {
+                "name": "commitment",
+                "type": "bytes32",
+                "indexed": true,
+                "internalType": "bytes32"
+            },
+            {
+                "name": "namespace",
+                "type": "string",
+                "indexed": false,
+                "internalType": "string"
+            },
+            {
+                "name": "provider",
+                "type": "address",
+                "indexed": false,
+                "internalType": "address"
+            },
+            {
+                "name": "commitmentsCount",
+                "type": "uint256",
+                "indexed": false,
+                "internalType": "uint256"
+            }
+        ],
+        "anonymous": false
+    }
+]

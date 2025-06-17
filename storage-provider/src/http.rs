@@ -1,158 +1,253 @@
 use std::convert::Infallible;
 use std::sync::Arc;
-use base64::Engine;
+use alloy::primitives::FixedBytes;
 use warp::Filter;
 use serde::{Deserialize, Serialize};
-use sha2::{Sha256, Digest};
-use crate::utils::base64_engine;
-use crate::storage::{ChunkStorage, ChunkMetadata};
-use std::time::SystemTime;
+use pod::client::{PodaClient, PodaClientTrait};
+use crate::storage::{ChunkStorage, Chunk};
+use hex;
+
 
 #[derive(Debug, Deserialize)]
 struct StoreRequest {
-    data: String, // base64 encoded data
+    commitment: FixedBytes<32>,
     namespace: String,
-    chunk_index: u32,
+    chunk: Chunk,
 }
 
 #[derive(Debug, Serialize)]
 struct StoreResponse {
-    chunk_id: String,
-    hash: String,
     success: bool,
-}
-
-#[derive(Debug, Serialize)]
-struct ChunkResponse {
-    chunk_id: String,
-    data: String, // base64 encoded
-    metadata: ChunkMetadata,
+    message: String,
 }
 
 #[derive(Debug, Serialize)]
 struct StatusResponse {
     exists: bool,
-    metadata: Option<ChunkMetadata>,
 }
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct BatchStoreRequest {
+    pub commitment: FixedBytes<32>,
+    pub namespace: String,
+    pub chunks: Vec<Chunk>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BatchRetrieveRequest {
+    pub namespace: String,
+    pub commitment: FixedBytes<32>,
+    pub indices: Vec<u16>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BatchRetrieveResponse {
+    pub chunks: Vec<Option<Chunk>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BatchDeleteRequest {
+    pub namespace: String,
+    pub commitment: FixedBytes<32>,
+    pub indices: Vec<u16>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ListQuery {
+    namespace: String,
+    commitment: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ListResponse {
+    indices: Vec<u16>,
+}
+
 
 pub async fn start_server<T: ChunkStorage + Send + Sync + 'static>(
     storage: Arc<T>,
+    pod: Arc<PodaClient>,
     port: u16,
 ) {
     let storage_filter = warp::any().map(move || storage.clone());
+    let pod_filter = warp::any().map(move || pod.clone());
 
     // POST /store - Store a new chunk
     let store = warp::path("store")
         .and(warp::post())
         .and(warp::body::json())
         .and(storage_filter.clone())
+        .and(pod_filter.clone())
         .and_then(handle_store);
+
+    // POST /batch-store - Store multiple chunks
+    let batch_store = warp::path("batch-store")
+        .and(warp::post())
+        .and(warp::body::json())
+        .and(storage_filter.clone())
+        .and(pod_filter.clone())
+        .and_then(handle_batch_store);
 
     // GET /retrieve/{chunk_id} - Retrieve a chunk
     let retrieve = warp::path!("retrieve" / String)
         .and(warp::get())
         .and(storage_filter.clone())
+        .and(pod_filter.clone())
         .and_then(handle_retrieve);
+
+    // POST /batch-retrieve - Retrieve multiple chunks
+    let batch_retrieve = warp::path("batch-retrieve")
+        .and(warp::post())
+        .and(warp::body::json())
+        .and(storage_filter.clone())
+        .and(pod_filter.clone())
+        .and_then(handle_batch_retrieve);
 
     // GET /status/{chunk_id} - Check if chunk exists
     let status = warp::path!("status" / String)
         .and(warp::get())
         .and(storage_filter.clone())
+        .and(pod_filter.clone())
         .and_then(handle_status);
 
     // DELETE /delete/{chunk_id} - Delete a chunk
-    let delete = warp::path!("delete" / String)
-        .and(warp::delete())
+    let delete = warp::path!("delete")
+        .and(warp::post())
+        .and(warp::body::json())
         .and(storage_filter.clone())
-        .and_then(handle_delete);
+        .and(pod_filter.clone())
+        .and_then(handle_batch_delete);
 
     // GET /list?offset=0&limit=10 - List chunks
     let list = warp::path("list")
         .and(warp::get())
         .and(warp::query::<ListQuery>())
         .and(storage_filter.clone())
+        .and(pod_filter.clone())
         .and_then(handle_list);
 
+    // GET /health - Health check
+    let health_check = warp::path("health")
+        .and(warp::get())
+        .and_then(handle_health_check);
+
     let routes = store
+        .or(batch_store)
         .or(retrieve)
+        .or(batch_retrieve)
         .or(status)
         .or(delete)
         .or(list)
+        .or(health_check)
         .with(warp::cors().allow_any_origin());
+
 
     println!("🦀 Rust Storage Provider API starting on port {}", port);
     warp::serve(routes).run(([127, 0, 0, 1], port)).await;
 }
 
+async fn handle_health_check() -> Result<impl warp::Reply, Infallible> {
+    Ok(warp::reply::with_status(
+        warp::reply::json(&serde_json::json!({"status": "ok"})),
+        warp::http::StatusCode::OK,
+    ))
+}
+
 async fn handle_store<T: ChunkStorage>(
     request: StoreRequest,
     storage: Arc<T>,
+    pod: Arc<PodaClient>,
 ) -> Result<impl warp::Reply, Infallible> {
-    let data = match base64_engine().decode(&request.data) {
-        Ok(data) => data,
-        Err(_) => {
-            return Ok(warp::reply::with_status(
+    let index = request.chunk.index as u16;
+    match storage.store(request.namespace, request.commitment, &request.chunk).await {
+        Ok(_) => {
+            println!("Chunk stored successfully");
+
+            let res = pod.submit_chunk_attestations(request.commitment, vec![index]).await;
+            if res.is_err() {
+                return Ok(warp::reply::with_status(
+                    warp::reply::json(&StoreResponse {
+                        success: false,
+                        message: format!("Failed to submit chunk attestation: {:?}", res.err()),
+                    }),
+                    warp::http::StatusCode::INTERNAL_SERVER_ERROR,
+                ));
+            }
+
+            Ok(warp::reply::with_status(
                 warp::reply::json(&StoreResponse {
-                    chunk_id: String::new(),
-                    hash: String::new(),
-                    success: false,
+                    success: true,
+                    message: "Chunk stored successfully".to_string(),
                 }),
-                warp::http::StatusCode::BAD_REQUEST,
-            ));
+                warp::http::StatusCode::OK,
+            ))
         }
-    };
 
-    // Generate chunk ID and hash
-    let mut hasher = Sha256::new();
-    hasher.update(&data);
-    let hash = hex::encode(hasher.finalize());
-    let chunk_id = format!("{}_{}", request.namespace, hash[..16].to_string());
-
-    let metadata = ChunkMetadata {
-        namespace: request.namespace,
-        index: request.chunk_index,
-        hash: hash.clone(),
-        stored_at: SystemTime::now(),
-    };
-
-    let success = storage.store(&chunk_id, &data, metadata).await.is_ok();
-
-    Ok(warp::reply::with_status(
-        warp::reply::json(&StoreResponse {
-            chunk_id,
-            hash,
-            success,
-        }),
-        if success {
-            warp::http::StatusCode::OK
-        } else {
-            warp::http::StatusCode::INTERNAL_SERVER_ERROR
-        },
-    ))
+        Err(e) => {
+            println!("Error storing chunk: {:?}", e);
+            Ok(warp::reply::with_status(
+                warp::reply::json(&StoreResponse {
+                    success: false,
+                    message: format!("Failed to store chunk: {:?}", e),
+                }),
+                warp::http::StatusCode::INTERNAL_SERVER_ERROR,
+            ))
+        }
+    }
 }
 
 async fn handle_retrieve<T: ChunkStorage>(
     chunk_id: String,
     storage: Arc<T>,
+    _: Arc<PodaClient>,
 ) -> Result<impl warp::Reply, Infallible> {
-    match storage.retrieve(&chunk_id).await {
+    // Parse chunk_id to extract namespace, commitment, and index
+    // Format: {namespace}_{commitment}_{index}
+    let parts: Vec<&str> = chunk_id.split('_').collect();
+    if parts.len() < 3 {
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({"error": "Invalid chunk ID format"})),
+            warp::http::StatusCode::BAD_REQUEST,
+        ));
+    }
+
+    let namespace = parts[0].to_string();
+    let commitment_hex = parts[1];
+    let index_str = parts[2];
+
+    let commitment = match hex::decode(commitment_hex) {
+        Ok(bytes) if bytes.len() == 32 => FixedBytes::from_slice(&bytes),
+        _ => {
+            return Ok(warp::reply::with_status(
+                warp::reply::json(&serde_json::json!({"error": "Invalid commitment format"})),
+                warp::http::StatusCode::BAD_REQUEST,
+            ));
+        }
+    };
+
+    let index = match index_str.parse::<u16>() {
+        Ok(idx) => idx,
+        Err(_) => {
+            return Ok(warp::reply::with_status(
+                warp::reply::json(&serde_json::json!({"error": "Invalid index format"})),
+                warp::http::StatusCode::BAD_REQUEST,
+            ));
+        }
+    };
+
+    match storage.retrieve(namespace, commitment, index).await {
         Ok(Some(chunk)) => {
-            let data = base64_engine().encode(&chunk.data);
             Ok(warp::reply::with_status(
-                warp::reply::json(&ChunkResponse {
-                    chunk_id,
-                    data,
-                    metadata: chunk.metadata,
-                }),
+                warp::reply::json(&Some(chunk)),
                 warp::http::StatusCode::OK,
             ))
         }
         Ok(None) => Ok(warp::reply::with_status(
-            warp::reply::json(&serde_json::json!({"error": "Chunk not found"})),
+            warp::reply::json(&None::<Chunk>),
             warp::http::StatusCode::NOT_FOUND,
         )),
         Err(_) => Ok(warp::reply::with_status(
-            warp::reply::json(&serde_json::json!({"error": "Internal server error"})),
+            warp::reply::json(&None::<Chunk>),
             warp::http::StatusCode::INTERNAL_SERVER_ERROR,
         )),
     }
@@ -161,17 +256,45 @@ async fn handle_retrieve<T: ChunkStorage>(
 async fn handle_status<T: ChunkStorage>(
     chunk_id: String,
     storage: Arc<T>,
+    _: Arc<PodaClient>,
 ) -> Result<impl warp::Reply, Infallible> {
-    match storage.exists(&chunk_id).await {
-        Ok(exists) => {
-            let metadata = if exists {
-                storage.retrieve(&chunk_id).await.ok().flatten().map(|c| c.metadata)
-            } else {
-                None
-            };
+    // Parse chunk_id to extract namespace, commitment, and index
+    let parts: Vec<&str> = chunk_id.split('_').collect();
+    if parts.len() < 3 {
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({"error": "Invalid chunk ID format"})),
+            warp::http::StatusCode::BAD_REQUEST,
+        ));
+    }
 
+    let namespace = parts[0].to_string();
+    let commitment_hex = parts[1];
+    let index_str = parts[2];
+
+    let commitment = match hex::decode(commitment_hex) {
+        Ok(bytes) if bytes.len() == 32 => FixedBytes::from_slice(&bytes),
+        _ => {
+            return Ok(warp::reply::with_status(
+                warp::reply::json(&serde_json::json!({"error": "Invalid commitment format"})),
+                warp::http::StatusCode::BAD_REQUEST,
+            ));
+        }
+    };
+
+    let index = match index_str.parse::<u16>() {
+        Ok(idx) => idx,
+        Err(_) => {
+            return Ok(warp::reply::with_status(
+                warp::reply::json(&serde_json::json!({"error": "Invalid index format"})),
+                warp::http::StatusCode::BAD_REQUEST,
+            ));
+        }
+    };
+
+    match storage.exists(namespace, commitment, index).await {
+        Ok(exists) => {
             Ok(warp::reply::with_status(
-                warp::reply::json(&StatusResponse { exists, metadata }),
+                warp::reply::json(&StatusResponse { exists }),
                 warp::http::StatusCode::OK,
             ))
         }
@@ -182,38 +305,118 @@ async fn handle_status<T: ChunkStorage>(
     }
 }
 
-async fn handle_delete<T: ChunkStorage>(
-    chunk_id: String,
+async fn handle_batch_delete<T: ChunkStorage>(
+    request: BatchDeleteRequest,
     storage: Arc<T>,
+    _: Arc<PodaClient>,
 ) -> Result<impl warp::Reply, Infallible> {
-    match storage.delete(&chunk_id).await {
-        Ok(deleted) => Ok(warp::reply::with_status(
-            warp::reply::json(&serde_json::json!({"deleted": deleted})),
-            warp::http::StatusCode::OK,
-        )),
-        Err(_) => Ok(warp::reply::with_status(
-            warp::reply::json(&serde_json::json!({"error": "Internal server error"})),
-            warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-        )),
+    for index in request.indices {
+        match storage.delete(request.namespace.clone(), request.commitment, index).await {
+            Ok(_) => {},
+            Err(_) => {
+                return Ok(warp::reply::with_status(
+                    warp::reply::json(&serde_json::json!({"error": "Internal server error"})),
+                    warp::http::StatusCode::INTERNAL_SERVER_ERROR,
+                ))
+            }
+        }
     }
+
+    Ok(warp::reply::with_status(warp::reply::json(&serde_json::json!({"success": true})), warp::http::StatusCode::OK))
 }
 
-#[derive(Debug, Deserialize)]
-struct ListQuery {
-    offset: Option<usize>,
-    limit: Option<usize>,
+async fn handle_batch_store<T: ChunkStorage>(
+    request: BatchStoreRequest,
+    storage: Arc<T>,
+    pod: Arc<PodaClient>,
+) -> Result<impl warp::Reply, Infallible> {
+    for chunk in &request.chunks {
+        match storage.store(request.namespace.clone(), request.commitment, &chunk).await {
+            Ok(_) => {
+            }
+            Err(e) => {
+                return Ok(warp::reply::with_status(
+                    warp::reply::json(&StoreResponse {
+                        success: false,
+                        message: format!("Failed to store chunk: {:?}", e),
+                    }),
+                    warp::http::StatusCode::INTERNAL_SERVER_ERROR,
+                ));
+            }
+        }
+    }
+
+    let indices = request.chunks.iter().map(|c| c.index as u16).collect::<Vec<_>>();
+    println!("Submitting chunk attestation for indices: {:?}", indices);
+    let res = pod.submit_chunk_attestations(request.commitment, indices).await;
+    if res.is_err() {
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({"error": "Failed to submit chunk attestation"})),
+            warp::http::StatusCode::INTERNAL_SERVER_ERROR,
+        ));
+    }
+
+    Ok(warp::reply::with_status(warp::reply::json(&serde_json::json!({"success": true})), warp::http::StatusCode::OK))
+}
+
+async fn handle_batch_retrieve<T: ChunkStorage>(
+    request: BatchRetrieveRequest,
+    storage: Arc<T>,
+    _: Arc<PodaClient>,
+) -> Result<impl warp::Reply, Infallible> {
+    println!("Retrieving chunks: {:?}", request);
+    let mut chunks = Vec::new();
+    let mut errors = Vec::new();
+
+    for index in &request.indices {
+        match storage.retrieve(request.namespace.clone(), request.commitment, *index).await {
+            Ok(Some(chunk)) => {
+                chunks.push(Some(chunk));
+            }
+            Ok(None) => {
+                errors.push(format!("Chunk not found at index: {}", index));
+                chunks.push(None);
+            }
+            Err(_) => {
+                errors.push(format!("Failed to retrieve chunk at index: {}", index));
+                chunks.push(None);
+            }
+        }
+    }
+
+    let none_chunks = chunks.iter().filter(|c| c.is_none()).count();
+    if none_chunks == request.indices.len() {
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({"error": "All chunks not found"})),
+            warp::http::StatusCode::NOT_FOUND,
+        ));
+    }
+
+    Ok(warp::reply::with_status(
+        warp::reply::json(&BatchRetrieveResponse { chunks: chunks }),
+        warp::http::StatusCode::OK,
+    ))
 }
 
 async fn handle_list<T: ChunkStorage>(
     query: ListQuery,
     storage: Arc<T>,
+    _: Arc<PodaClient>,
 ) -> Result<impl warp::Reply, Infallible> {
-    let offset = query.offset.unwrap_or(0);
-    let limit = query.limit.unwrap_or(10);
+    // Parse commitment from string to FixedBytes
+    let commitment = match hex::decode(&query.commitment) {
+        Ok(bytes) if bytes.len() == 32 => FixedBytes::from_slice(&bytes),
+        _ => {
+            return Ok(warp::reply::with_status(
+                warp::reply::json(&serde_json::json!({"error": "Invalid commitment format"})),
+                warp::http::StatusCode::BAD_REQUEST,
+            ));
+        }
+    };
 
-    match storage.list_chunks(offset, limit).await {
-        Ok(chunks) => Ok(warp::reply::with_status(
-            warp::reply::json(&serde_json::json!({"chunks": chunks})),
+    match storage.list_chunks(query.namespace, commitment).await {
+        Ok(indices) => Ok(warp::reply::with_status(
+            warp::reply::json(&ListResponse { indices }),
             warp::http::StatusCode::OK,
         )),
         Err(_) => Ok(warp::reply::with_status(

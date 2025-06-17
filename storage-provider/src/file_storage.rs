@@ -1,10 +1,12 @@
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use crate::storage::{ChunkStorage, ChunkMetadata, Chunk};
+use crate::storage::{ChunkStorage, Chunk};
 use anyhow::Result;
+use pod::FixedBytes;
 use serde_json;
 use async_trait::async_trait;
+use sha2::{Sha256, Digest};
 
 pub struct FileStorage {
     base_path: PathBuf,
@@ -17,12 +19,8 @@ impl FileStorage {
         }
     }
 
-    fn chunk_path(&self, chunk_id: &str) -> PathBuf {
-        self.base_path.join(format!("{}.chunk", chunk_id))
-    }
-
-    fn metadata_path(&self, chunk_id: &str) -> PathBuf {
-        self.base_path.join(format!("{}.meta", chunk_id))
+    fn chunk_path(&self, namespace: String, commitment: FixedBytes<32>, index: u16) -> PathBuf {
+        self.base_path.join(format!("{}_{}_{}.chunk", namespace, commitment, index))
     }
 
     fn ensure_dir_exists(&self) -> Result<()> {
@@ -35,28 +33,24 @@ impl FileStorage {
 
 #[async_trait]
 impl ChunkStorage for FileStorage {
-    async fn store(&self, chunk_id: &str, data: &[u8], metadata: ChunkMetadata) -> Result<()> {
+    async fn store(&self, namespace: String, commitment: FixedBytes<32>, chunk: &Chunk) -> Result<()> {
         self.ensure_dir_exists()?;
 
         // Store the chunk data
-        let chunk_path = self.chunk_path(chunk_id);
+        let chunk_path = self.chunk_path(namespace, commitment, chunk.index);
         let mut file = File::create(&chunk_path)?;
-        file.write_all(data)?;
 
-        // Store the metadata
-        let metadata_path = self.metadata_path(chunk_id);
-        let metadata_file = File::create(&metadata_path)?;
-        serde_json::to_writer(metadata_file, &metadata)?;
+        let serialized_chunk = serde_json::to_vec(&chunk)?;
+
+        file.write_all(&serialized_chunk)?;
 
         Ok(())
     }
 
-    async fn retrieve(&self, chunk_id: &str) -> Result<Option<Chunk>> {
-        let chunk_path = self.chunk_path(chunk_id);
-        let metadata_path = self.metadata_path(chunk_id);
+    async fn retrieve(&self, namespace: String, commitment: FixedBytes<32>, index: u16) -> Result<Option<Chunk>> {
+        let chunk_path = self.chunk_path(namespace, commitment, index);
 
-        // Check if both files exist
-        if !chunk_path.exists() || !metadata_path.exists() {
+        if !chunk_path.exists() {
             return Ok(None);
         }
 
@@ -65,186 +59,171 @@ impl ChunkStorage for FileStorage {
         let mut file = File::open(&chunk_path)?;
         file.read_to_end(&mut data)?;
 
-        // Read the metadata
-        let metadata_file = File::open(&metadata_path)?;
-        let metadata: ChunkMetadata = serde_json::from_reader(metadata_file)?;
+        let deserialized_chunk: Chunk = serde_json::from_slice(&data)?;
 
-        Ok(Some(Chunk { data, metadata }))
+        Ok(Some(deserialized_chunk))
     }
 
-    async fn exists(&self, chunk_id: &str) -> Result<bool> {
-        let chunk_path = self.chunk_path(chunk_id);
-        let metadata_path = self.metadata_path(chunk_id);
-        Ok(chunk_path.exists() && metadata_path.exists())
+    async fn exists(&self, namespace: String, commitment: FixedBytes<32>, index: u16) -> Result<bool> {
+        let chunk_path = self.chunk_path(namespace, commitment, index);
+
+        Ok(chunk_path.exists())
     }
 
-    async fn delete(&self, chunk_id: &str) -> Result<bool> {
-        let chunk_path = self.chunk_path(chunk_id);
-        let metadata_path = self.metadata_path(chunk_id);
+    async fn delete(&self, namespace: String, commitment: FixedBytes<32>, index: u16) -> Result<bool> {
+        let chunk_path = self.chunk_path(namespace, commitment, index);
 
-        let mut deleted = false;
-        if chunk_path.exists() {
-            fs::remove_file(&chunk_path)?;
-            deleted = true;
-        }
-        if metadata_path.exists() {
-            fs::remove_file(&metadata_path)?;
-            deleted = true;
+        if !chunk_path.exists() {
+            return Ok(false);
         }
 
-        Ok(deleted)
+        fs::remove_file(&chunk_path)?;
+        Ok(true)
     }
 
-    async fn list_chunks(&self, offset: usize, limit: usize) -> Result<Vec<String>> {
+    async fn list_chunks(&self, namespace: String, commitment: FixedBytes<32>) -> Result<Vec<u16>> {
         self.ensure_dir_exists()?;
-        
+
         let mut chunks = Vec::new();
         for entry in fs::read_dir(&self.base_path)? {
             let entry = entry?;
             let path = entry.path();
             if path.extension().and_then(|ext| ext.to_str()) == Some("chunk") {
                 if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                    chunks.push(stem.to_string());
+                    // Parse the filename to extract the index
+                    // Filename format: {namespace}_{commitment}_{index}.chunk
+                    let parts: Vec<&str> = stem.split('_').collect();
+                    if parts.len() >= 3 {
+                        if let Ok(index) = parts[2].parse::<u16>() {
+                            chunks.push(index);
+                        }
+                    }
                 }
             }
         }
 
-        // Sort chunks for consistent pagination
+        // Sort chunks for consistent ordering
         chunks.sort();
-        
-        // Apply pagination
-        let start = offset.min(chunks.len());
-        let end = (offset + limit).min(chunks.len());
-        Ok(chunks[start..end].to_vec())
+        Ok(chunks)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloy::primitives::FixedBytes;
     use tempfile::TempDir;
-    use std::time::SystemTime;
 
-    async fn setup() -> (FileStorage, TempDir) {
-        let temp_dir = TempDir::new().unwrap();
-        let storage = FileStorage::new(temp_dir.path());
-        (storage, temp_dir)
+    fn hash(data: &[u8]) -> FixedBytes<32> {
+        let mut hasher = Sha256::new();
+        hasher.update(data);
+        let hash = hasher.finalize();
+        FixedBytes::from_slice(&hash)
     }
 
-    fn create_test_metadata() -> ChunkMetadata {
-        ChunkMetadata {
-            namespace: "namespace1".to_string(),
-            index: 1,
-            hash: "test-hash".to_string(),
-            stored_at: SystemTime::now(),
+    async fn setup() -> (FileStorage, TempDir, String, FixedBytes<32>) {
+        let namespace = "test-namespace".to_string();
+        let commitment = hash(b"full-data");
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileStorage::new(temp_dir.path());
+
+        (storage, temp_dir, namespace, commitment)
+    }
+
+    fn create_test_chunk(index: u16) -> Chunk {
+        Chunk {
+            index,
+            data: b"Hello, World!".to_vec(),
+            hash: hash(b"chunk-data"),
+            merkle_proof: vec!["proof1".to_string(), "proof2".to_string()],
         }
     }
 
+
     #[tokio::test]
     async fn test_store_and_retrieve() {
-        let (storage, _temp_dir) = setup().await;
-        let chunk_id = "test-chunk-1";
-        let data = b"Hello, World!";
-        let metadata = create_test_metadata();
+        let (storage, _temp_dir, namespace, commitment) = setup().await;
+        let chunk = create_test_chunk(1);
 
         // Test store
-        storage.store(chunk_id, data, metadata.clone()).await.unwrap();
+        storage.store(namespace.clone(), commitment, &chunk).await.unwrap();
 
         // Test retrieve
-        let retrieved = storage.retrieve(chunk_id).await.unwrap().unwrap();
-        assert_eq!(retrieved.data, data);
-        assert_eq!(retrieved.metadata.namespace, metadata.namespace);
-        assert_eq!(retrieved.metadata.index, metadata.index);
-        assert_eq!(retrieved.metadata.hash, metadata.hash);
+        let retrieved = storage.retrieve(namespace, commitment, 1).await.unwrap().unwrap();
+        assert_eq!(retrieved.data, chunk.data);
+        assert_eq!(retrieved.index, chunk.index);
+        assert_eq!(retrieved.hash, chunk.hash);
+        assert_eq!(retrieved.merkle_proof, chunk.merkle_proof);
     }
 
     #[tokio::test]
     async fn test_exists() {
-        let (storage, _temp_dir) = setup().await;
-        let chunk_id = "test-chunk-2";
-        let data = b"Test data";
-        let metadata = create_test_metadata();
+        let (storage, _temp_dir, namespace, commitment) = setup().await;
+        let chunk = create_test_chunk(1);
 
         // Initially should not exist
-        assert!(!storage.exists(chunk_id).await.unwrap());
+        assert!(!storage.exists(namespace.clone(), commitment, 1).await.unwrap());
 
         // Store the chunk
-        storage.store(chunk_id, data, metadata).await.unwrap();
+        storage.store(namespace.clone(), commitment, &chunk).await.unwrap();
 
         // Should exist after storing
-        assert!(storage.exists(chunk_id).await.unwrap());
+        assert!(storage.exists(namespace, commitment, 1).await.unwrap());
     }
 
     #[tokio::test]
     async fn test_delete() {
-        let (storage, _temp_dir) = setup().await;
-        let chunk_id = "test-chunk-3";
-        let data = b"Test data";
-        let metadata = create_test_metadata();
+        let (storage, _temp_dir, namespace, commitment) = setup().await;
+        let chunk = create_test_chunk(1);
 
         // Store the chunk
-        storage.store(chunk_id, data, metadata).await.unwrap();
-        assert!(storage.exists(chunk_id).await.unwrap());
+        storage.store(namespace.clone(), commitment, &chunk).await.unwrap();
+        assert!(storage.exists(namespace.clone(), commitment, 1).await.unwrap());
 
         // Delete the chunk
-        assert!(storage.delete(chunk_id).await.unwrap());
-        assert!(!storage.exists(chunk_id).await.unwrap());
+        assert!(storage.delete(namespace.clone(), commitment, 1).await.unwrap());
+        assert!(!storage.exists(namespace.clone(), commitment, 1).await.unwrap());
 
         // Delete non-existent chunk should return false
-        assert!(!storage.delete("non-existent").await.unwrap());
+        assert!(!storage.delete(namespace, commitment, 999).await.unwrap());
     }
 
     #[tokio::test]
     async fn test_list_chunks() {
-        let (storage, _temp_dir) = setup().await;
-        let metadata = create_test_metadata();
+        let (storage, _temp_dir, namespace, commitment) = setup().await;
 
         // Store multiple chunks
-        let chunks = vec!["chunk-1", "chunk-2", "chunk-3", "chunk-4", "chunk-5"];
-        for chunk_id in &chunks {
-            storage.store(chunk_id, b"data", metadata.clone()).await.unwrap();
+        for i in 1..=5 {
+            let chunk = create_test_chunk(i);
+            storage.store(namespace.clone(), commitment, &chunk).await.unwrap();
         }
 
-        // Test pagination
-        let listed = storage.list_chunks(0, 2).await.unwrap();
-        assert_eq!(listed.len(), 2);
-        assert_eq!(listed[0], "chunk-1");
-        assert_eq!(listed[1], "chunk-2");
-
-        // Test offset
-        let listed = storage.list_chunks(2, 2).await.unwrap();
-        assert_eq!(listed.len(), 2);
-        assert_eq!(listed[0], "chunk-3");
-        assert_eq!(listed[1], "chunk-4");
-
-        // Test limit larger than available
-        let listed = storage.list_chunks(4, 10).await.unwrap();
-        assert_eq!(listed.len(), 1);
-        assert_eq!(listed[0], "chunk-5");
+        // Test listing chunks
+        let listed = storage.list_chunks(namespace, commitment).await.unwrap();
+        assert_eq!(listed.len(), 5);
+        assert_eq!(listed, vec![1, 2, 3, 4, 5]);
     }
 
     #[tokio::test]
     async fn test_retrieve_nonexistent() {
-        let (storage, _temp_dir) = setup().await;
-        let result = storage.retrieve("non-existent").await.unwrap();
+        let (storage, _temp_dir, namespace, commitment) = setup().await;
+        let result = storage.retrieve(namespace, commitment, 999).await.unwrap();
         assert!(result.is_none());
     }
 
     #[tokio::test]
-    async fn test_corrupted_metadata() {
-        let (storage, _temp_dir) = setup().await;
-        let chunk_id = "corrupted-chunk";
-        let data = b"Test data";
-        let metadata = create_test_metadata();
+    async fn test_corrupted_chunk() {
+        let (storage, _temp_dir, namespace, commitment) = setup().await;
+        let chunk = create_test_chunk(1);
 
         // Store valid data
-        storage.store(chunk_id, data, metadata).await.unwrap();
+        storage.store(namespace.clone(), commitment, &chunk).await.unwrap();
 
-        // Corrupt the metadata file
-        let metadata_path = storage.metadata_path(chunk_id);
-        std::fs::write(metadata_path, "invalid json").unwrap();
+        // Corrupt the chunk file by writing invalid JSON
+        let chunk_path = storage.chunk_path(namespace.clone(), commitment, 1);
+        std::fs::write(chunk_path, "invalid json").unwrap();
 
         // Attempt to retrieve should fail
-        assert!(storage.retrieve(chunk_id).await.is_err());
+        assert!(storage.retrieve(namespace, commitment, 1).await.is_err());
     }
 }
