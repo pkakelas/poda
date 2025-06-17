@@ -6,20 +6,30 @@ mod utils;
 use std::{str::FromStr, sync::Arc};
 use pod::{client::PodaClient, PrivateKeySigner, Address};
 use file_storage::FileStorage;
+use dotenv::dotenv;
+
+fn load_config() -> (String, Address, u16, String) {
+    dotenv().ok();
+
+    let rpc_url = std::env::var("RPC_URL").unwrap();
+    let poda_address = std::env::var("PODA_ADDRESS").unwrap().parse::<Address>().unwrap();
+    let port = std::env::var("STORAGE_PROVIDER_PORT").unwrap().parse::<u16>().unwrap();
+    let private_key = std::env::var("STORAGE_PROVIDER_PRIVATE_KEY").unwrap();
+
+    (rpc_url, poda_address, port, private_key)
+}
+
 
 #[tokio::main]
 pub async fn main() {
-    const RPC_URL: &str = "http://localhost:8545";
-    const CONTRACT_ADDRESS: &str = "0xbeFb2305cF0C2726374F7dCBc3A29df59Df89fA8";
-    const PRIVATE_KEY: &str = "6df79891f22b0f3c9e9fb53b966a8861fd6fef69f99772c5c4dbcf303f10d901";
+    let (rpc_url, poda_address, port, private_key) = load_config();
 
     let storage = FileStorage::new("test_storage");
     let storage = Arc::new(storage);
-    let signer = PrivateKeySigner::from_str(PRIVATE_KEY).unwrap();
-    let contract_address = Address::from_str(CONTRACT_ADDRESS).unwrap();
-    let pod = PodaClient::new(signer, RPC_URL.to_string(), contract_address).await;
+    let signer = PrivateKeySigner::from_str(&private_key).unwrap();
+    let pod = PodaClient::new(signer, rpc_url.clone(), poda_address).await;
     let pod = Arc::new(pod);
-    let http_server = http::start_server(storage, pod, 3000);
+    let http_server = http::start_server(storage, pod, port);
 
     http_server.await;
 }

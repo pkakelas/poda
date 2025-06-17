@@ -121,7 +121,7 @@ async fn start_new_dispencer_server(pod: &PodaClient) -> ServerHandle {
     let dispencer_instance = Dispenser::new(pod.clone());
 
     // Start the server in the background
-    let server = dispencer::http::start_server(Arc::new(dispencer_instance), port);
+    let server = dispencer::http::start_server(dispencer_instance, port);
     let _ = tokio::spawn(async move {
         let server = server;
         tokio::select! {

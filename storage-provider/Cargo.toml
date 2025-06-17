@@ -18,6 +18,7 @@ alloy-sol-types = "1.2.0"
 rand = "0.9.1"
 pod = { path = "../pod" }
 sha3 = "0.10.8"
+dotenv = "0.15.0"
 
 [dev-dependencies]
 tempfile = "3.10.1"

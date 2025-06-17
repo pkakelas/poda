@@ -41,9 +41,10 @@ pub struct HealthResponse {
 }
 
 pub async fn start_server<T: PodaClientTrait + Send + Sync + 'static>(
-    dispenser: Arc<Dispenser<T>>,
+    dispenser: Dispenser<T>,
     port: u16,
 ) {
+    let dispenser = Arc::new(dispenser);
     let dispenser_filter = warp::any().map(move || dispenser.clone());
 
     // POST /submit - Submit data for storage
