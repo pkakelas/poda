@@ -6,7 +6,6 @@ use anyhow::Result;
 use pod::FixedBytes;
 use serde_json;
 use async_trait::async_trait;
-use sha2::{Sha256, Digest};
 
 pub struct FileStorage {
     base_path: PathBuf,
@@ -90,12 +89,13 @@ impl ChunkStorage for FileStorage {
             let path = entry.path();
             if path.extension().and_then(|ext| ext.to_str()) == Some("chunk") {
                 if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                    // Parse the filename to extract the index
                     // Filename format: {namespace}_{commitment}_{index}.chunk
                     let parts: Vec<&str> = stem.split('_').collect();
                     if parts.len() >= 3 {
                         if let Ok(index) = parts[2].parse::<u16>() {
-                            chunks.push(index);
+                            if parts[0] == namespace && parts[1] == commitment.to_string() {
+                                chunks.push(index);
+                            }
                         }
                     }
                 }
@@ -111,19 +111,13 @@ impl ChunkStorage for FileStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy::primitives::FixedBytes;
+    use pod::FixedBytes;
+    use sha3::{Digest, Keccak256};
     use tempfile::TempDir;
-
-    fn hash(data: &[u8]) -> FixedBytes<32> {
-        let mut hasher = Sha256::new();
-        hasher.update(data);
-        let hash = hasher.finalize();
-        FixedBytes::from_slice(&hash)
-    }
 
     async fn setup() -> (FileStorage, TempDir, String, FixedBytes<32>) {
         let namespace = "test-namespace".to_string();
-        let commitment = hash(b"full-data");
+        let commitment = FixedBytes::from_slice(&Keccak256::digest(b"full-data"));
         let temp_dir = TempDir::new().unwrap();
         let storage = FileStorage::new(temp_dir.path());
 
@@ -134,7 +128,7 @@ mod tests {
         Chunk {
             index,
             data: b"Hello, World!".to_vec(),
-            hash: hash(b"chunk-data"),
+            hash: FixedBytes::from_slice(&Keccak256::digest(b"chunk-data")),
             merkle_proof: vec!["proof1".to_string(), "proof2".to_string()],
         }
     }
