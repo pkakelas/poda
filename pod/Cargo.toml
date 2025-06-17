@@ -1,0 +1,13 @@
+[package]
+name = "pod"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+hex = "0.4.3"
+tokio = "1.36"
+pod-sdk = { git = "https://github.com/podnetwork/pod-sdk" }
+anyhow = "1.0.98"
+alloy = { version = "0.12.1", features = ["sol-types", "contract"] }
+async-trait = "0.1.88"
+mockall = "0.13.1"
