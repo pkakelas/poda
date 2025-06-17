@@ -1486,6 +1486,7 @@ name = "dispencer"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "hex",
  "mockall",
  "pod",
@@ -1497,6 +1498,7 @@ dependencies = [
  "sha3 0.10.8",
  "storage-provider",
  "tokio",
+ "warp",
 ]
 
 [[package]]
@@ -3861,7 +3863,6 @@ dependencies = [
  "alloy-sol-types 1.2.0",
  "anyhow",
  "async-trait",
- "base64 0.22.1",
  "futures",
  "hex",
  "pod",

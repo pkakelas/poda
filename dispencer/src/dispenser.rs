@@ -96,9 +96,7 @@ impl<T: PodaClientTrait> Dispenser<T> {
         let r = ReedSolomon::<reed_solomon_erasure::galois_8::Field>::new(required_shards, parity_shards).unwrap();
         let mut master_copy = self.create_shards(data, required_shards, total_shards);
 
-        // println!("Before encoding - shards: {:?}", master_copy);
         r.encode(&mut master_copy).unwrap();
-        // println!("After encoding - shards: {:?}", master_copy);
 
         let chunks = master_copy.iter().enumerate().map(|(index, shard)| Chunk {
             index: index as u16,

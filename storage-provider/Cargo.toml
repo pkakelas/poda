@@ -10,7 +10,6 @@ serde_json = "1.0.140"
 async-trait = "0.1.77"
 tokio = { version = "1.36.0", features = ["full"] }
 warp = "0.3.7"
-base64 = "0.22.1"
 hex = "0.4.3"
 pod-sdk = { git = "https://github.com/podnetwork/pod-sdk" }
 alloy = { version = "0.12.1", features = ["sol-types", "contract"] }

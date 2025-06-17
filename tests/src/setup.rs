@@ -2,19 +2,19 @@ use std::fs;
 use std::net::TcpListener;
 use std::time::Duration;
 use std::{str::FromStr, sync::Arc};
-use dispencer::dispenser::Dispenser;
 use pod::client::PodaClientTrait;
 use pod::{Address, EthereumWallet, PodProvider, PodProviderBuilder, Provider, U256};
 use pod::{client::PodaClient, PrivateKeySigner};
 use serde::Deserialize;
-use storage_provider::{start_server, FileStorage};
+use storage_provider::{FileStorage};
+use dispencer::dispenser::Dispenser;
 use tempfile::TempDir;
 use tokio::sync::oneshot;
 use tokio::time::sleep;
 
 // Keep track of running servers to prevent them from being dropped
 pub struct ServerHandle {
-    _temp_dir: TempDir,
+    _temp_dir: Option<TempDir>,
     _shutdown_tx: oneshot::Sender<()>,
     pub base_url: String,
 }
@@ -37,7 +37,7 @@ const ONE_ETH: u128 = 1000000000000000000;
 const MIN_STAKE: u128 = ONE_ETH / 100;
 
 // n_actors: Number of actors in setup. 1 will be dispencer, the rest will be storage providers
-pub async fn setup_pod(n_actors: usize, rpc_url: &str) -> (Dispenser<PodaClient>, Address, Vec<ServerHandle>) {
+pub async fn setup_pod(n_actors: usize, rpc_url: &str) -> (Address, ServerHandle, Vec<ServerHandle>) {
     println!("Setting up pod");
     let faucet = PrivateKeySigner::from_str(FAUCET_PRIVATE_KEY).expect("Invalid private key");
     let faucet_address = faucet.address();
@@ -58,9 +58,8 @@ pub async fn setup_pod(n_actors: usize, rpc_url: &str) -> (Dispenser<PodaClient>
         clients.push(client);
     }
 
-    // Make the first one a dispencer
     let dispencer_client = clients[0].clone();
-    let dispencer = Dispenser::new(dispencer_client.clone());
+    let dispencer_handle = start_new_dispencer_server(&dispencer_client).await;
 
     let mut server_handles: Vec<ServerHandle> = Vec::new();
     
@@ -80,7 +79,7 @@ pub async fn setup_pod(n_actors: usize, rpc_url: &str) -> (Dispenser<PodaClient>
     let providers = dispencer_client.get_providers().await.unwrap();
     println!("Providers: {:?}", providers);
 
-    (dispencer, poda_address, server_handles)
+    (poda_address, dispencer_handle, server_handles)
 }
 
 pub async fn get_provider_for_signer(signer: PrivateKeySigner, rpc_url: &str) -> PodProvider {
@@ -109,26 +108,20 @@ async fn faucet_if_needed(faucet: PodProvider, actors: &Vec<Actor>) -> () {
         let balance = faucet.get_balance(actor.address).await.unwrap();
         println!("balance of actor {:?} is {:?}", actor.address, balance);
     }
-
-
 }
 
-async fn start_new_storage_provider_server(pod: &PodaClient) -> ServerHandle {
+async fn start_new_dispencer_server(pod: &PodaClient) -> ServerHandle {
     // Find an available port
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     drop(listener); // Close the listener so the port is free
 
-    // Create a temporary directory for storage
-    let temp_dir = TempDir::new().unwrap();
-    let storage = FileStorage::new(temp_dir.path());
-    let storage = Arc::new(storage);
-
-    // Create shutdown channel
+    // Create shutdowjn channel
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+    let dispencer_instance = Dispenser::new(pod.clone());
 
     // Start the server in the background
-    let server = start_server(storage, Arc::new(pod.clone()), port);
+    let server = dispencer::http::start_server(Arc::new(dispencer_instance), port);
     let _ = tokio::spawn(async move {
         let server = server;
         tokio::select! {
@@ -144,7 +137,42 @@ async fn start_new_storage_provider_server(pod: &PodaClient) -> ServerHandle {
 
     ServerHandle {
         base_url: base_url,
-        _temp_dir: temp_dir,
+        _temp_dir: None,
+        _shutdown_tx: shutdown_tx,
+    }
+}
+async fn start_new_storage_provider_server(pod: &PodaClient) -> ServerHandle {
+    // Find an available port
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener); // Close the listener so the port is free
+
+    // Create a temporary directory for storage
+    let temp_dir = TempDir::new().unwrap();
+    let storage = FileStorage::new(temp_dir.path());
+    let storage = Arc::new(storage);
+
+    // Create shutdown channel
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+
+    // Start the server in the background
+    let server = storage_provider::http::start_server(storage, Arc::new(pod.clone()), port);
+    let _ = tokio::spawn(async move {
+        let server = server;
+        tokio::select! {
+            _ = server => {},
+            _ = shutdown_rx => {},
+        }
+    });
+
+    // Wait for server to start
+    sleep(Duration::from_millis(100)).await;
+
+    let base_url = format!("http://localhost:{}", port);
+
+    ServerHandle {
+        base_url: base_url,
+        _temp_dir: Some(temp_dir),
         _shutdown_tx: shutdown_tx,
     }
 }
