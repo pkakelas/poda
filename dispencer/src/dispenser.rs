@@ -2,19 +2,18 @@ use std::{collections::HashMap, iter::zip};
 
 use anyhow::Result;
 use pod::{client::{PodaClientTrait, ProviderInfo}, FixedBytes, U256};
-use storage_provider::{http::{BatchRetrieveRequest, BatchRetrieveResponse, BatchStoreRequest}, Chunk};
+use storage_provider::http::{BatchRetrieveRequest, BatchRetrieveResponse, BatchStoreRequest};
+use types::{constants::{REQUIRED_SHARDS, TOTAL_SHARDS}, Chunk, KzgProof};
 use reed_solomon_erasure::ReedSolomon;
 use sha3::{Digest, Keccak256};
+use kzg::{kzg_commit, kzg_multi_prove};
 
 // Map of id to chunk
 type ChunkAssignment = HashMap<String, Vec<Chunk>>;
 
 pub struct Dispenser<T: PodaClientTrait> {
-    pod: T,
+    pub pod: T,
 }
-
-pub const REQUIRED_SHARDS: usize = 16;
-pub const TOTAL_SHARDS: usize = 16 + 8;
 
 impl<T: PodaClientTrait> Dispenser<T> {
     pub fn new(pod: T) -> Self {
@@ -25,14 +24,29 @@ impl<T: PodaClientTrait> Dispenser<T> {
         let storage_providers = self.pod.get_providers().await?.iter().map(|p| p.clone()).collect::<Vec<_>>();
         let commitment: FixedBytes<32> = FixedBytes::from_slice(&Keccak256::digest(data));
 
-        self.pod.submit_commitment(commitment, namespace.clone(), data.len() as u32, TOTAL_SHARDS as u16, REQUIRED_SHARDS as u16).await?;
-
         let chunks = self.erasure_encode(data, REQUIRED_SHARDS, TOTAL_SHARDS);
+
+        let (kzg_commitment, _) = kzg_commit(&chunks);
+        self.pod.submit_commitment(commitment, namespace.clone(), data.len() as u32, TOTAL_SHARDS as u16, REQUIRED_SHARDS as u16, kzg_commitment.try_into().unwrap()).await?;
+
         let assignments = self.assign_chunks(&chunks, &storage_providers)?;
 
-        for (provider_id, chunks) in &assignments {
+        let mut promised_chunks: usize = 0;
+        for (provider_id, provider_chunks) in &assignments {
+            let chunk_ids = provider_chunks.iter().map(|c| c.index as usize).collect::<Vec<_>>();
+            // Generate proof from all chunks but only for the indices this provider needs
+            let proof = kzg_multi_prove(&chunks, &chunk_ids);
             let provider = storage_providers.iter().find(|p| p.name == *provider_id).unwrap();
-            self.batch_submit_to_provider(chunks.clone(), namespace.clone(), commitment, provider).await?;
+            let result = self.batch_submit_to_provider(provider_chunks.clone(), namespace.clone(), commitment, provider, proof).await;
+            if result.is_err() {
+                println!("[DISPENCER] Failed to submit chunks to provider {}: {:?}", provider_id, result.err());
+                continue;
+            }
+            promised_chunks += chunk_ids.len();
+        }
+
+        if promised_chunks < REQUIRED_SHARDS {
+            return Err(anyhow::anyhow!("Not enough chunks where promised to providers"));
         }
 
         self.pod.wait_for_availability(commitment).await?;
@@ -102,7 +116,6 @@ impl<T: PodaClientTrait> Dispenser<T> {
             index: index as u16,
             data: shard.to_vec(),
             hash: FixedBytes::from_slice(&Keccak256::digest(shard)),
-            merkle_proof: Vec::<String>::default(),
         }).collect::<Vec<_>>();
 
         if chunks.len() != total_shards {
@@ -135,8 +148,8 @@ impl<T: PodaClientTrait> Dispenser<T> {
                     index: i as u16,
                     data: data.clone(),
                     hash: FixedBytes::from_slice(&Keccak256::digest(data)),
-                    merkle_proof: Vec::<String>::default(),
                 };
+
                 reconstructed_chunks.push(chunk);
                 decoded.extend_from_slice(data);
             } else {
@@ -168,18 +181,20 @@ impl<T: PodaClientTrait> Dispenser<T> {
         Ok(message.chunks)
     }
 
-    async fn batch_submit_to_provider(&self, chunks: Vec<Chunk>, namespace: String, commitment: FixedBytes<32>, storage_provider: &ProviderInfo) -> Result<()> {
+    pub async fn batch_submit_to_provider(&self, chunks: Vec<Chunk>, namespace: String, commitment: FixedBytes<32>, storage_provider: &ProviderInfo, proof: KzgProof) -> Result<()> {
         let url = format!("{}/batch-store", storage_provider.url);
         let body = BatchStoreRequest {
             commitment,
             namespace,
             chunks,
+            kzg_proof: proof,
         };
 
         let response = reqwest::Client::new().post(url).json(&body).send().await?;
 
         if !response.status().is_success() {
-            return Err(anyhow::anyhow!("Failed to submit chunks: {:?}", response.status()));
+            let error: serde_json::Value = serde_json::from_str(&response.text().await.unwrap()).unwrap();
+            return Err(anyhow::anyhow!("Failed to submit chunks: {:?}", error["message"]));
         }
 
         Ok(())
@@ -282,6 +297,7 @@ impl<T: PodaClientTrait> Dispenser<T> {
 mod tests {
     use super::*;
     use pod::{client::MockPodaClientTrait, Address, FixedBytes};
+    use types::constants::REQUIRED_SHARDS;
 
     async fn create_test_dispenser() -> Dispenser<MockPodaClientTrait> {
         let pod = MockPodaClientTrait::new();

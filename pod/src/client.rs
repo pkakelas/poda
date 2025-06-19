@@ -1,10 +1,10 @@
 use async_trait::async_trait;
 use mockall::automock;
-use std::time::Duration;
-use alloy::{primitives::{FixedBytes}, sol};
+use std::{time::Duration};
+use alloy::{primitives::FixedBytes, sol};
 use alloy::primitives::U256;
 use anyhow::{Result};
-use pod_sdk::{network::PodNetwork, provider::{PodProvider, PodProviderBuilder}, Address, EthereumWallet, PrivateKeySigner, Provider};
+use pod_sdk::{network::PodNetwork, provider::{PodProvider, PodProviderBuilder}, Address, EthereumWallet, PrivateKeySigner, Provider, Bytes};
 use crate::client::Poda::PodaInstance;
 pub use Poda::{ProviderInfo, Commitment};
 
@@ -19,7 +19,7 @@ sol!(
 #[async_trait]
 pub trait PodaClientTrait {
     async fn register_provider(&self, name: String, url: String, stake: u128) -> Result<()>;
-    async fn submit_commitment(&self, commitment: FixedBytes<32>, namespace: String, size: u32, total_chunks: u16, required_chunks: u16) -> Result<()>;
+    async fn submit_commitment(&self, commitment: FixedBytes<32>, namespace: String, size: u32, total_chunks: u16, required_chunks: u16, kzg_commitment: Bytes) -> Result<()>;
     async fn submit_chunk_attestations(&self, commitment: FixedBytes<32>, chunk_ids: Vec<u16>) -> Result<()>;
     async fn get_providers(&self) -> Result<Vec<ProviderInfo>>;
     async fn get_eligible_providers(&self) -> Result<Vec<ProviderInfo>>;
@@ -106,9 +106,10 @@ impl PodaClientTrait for PodaClient {
         namespace: String, 
         size: u32, 
         total_chunks: u16, 
-        required_chunks: u16
+        required_chunks: u16,
+        kzg_commitment: Bytes
     ) -> Result<()> {
-        let submit = self.contract.submitCommitment(commitment, namespace, size, total_chunks, required_chunks).send().await?;
+        let submit = self.contract.submitCommitment(commitment, namespace, size, total_chunks, required_chunks, kzg_commitment).send().await?;
         
         match submit.get_receipt().await {
             Ok(receipt) => {
@@ -318,13 +319,14 @@ mod tests {
 
         // Test data
         let commitment = FixedBytes::from([1u8; 32]);
+        let kzg_commitment = Bytes::from([1u8; 48]);
         let namespace = "test_namespace".to_string();
         let size = 1024u32;
         let total_chunks = 6u16;
         let required_chunks = 4u16;
 
         // Submit commitment and wait for confirmation
-        pod.submit_commitment(commitment, namespace, size, total_chunks, required_chunks)
+        pod.submit_commitment(commitment, namespace, size, total_chunks, required_chunks, kzg_commitment)
             .await
             .expect("Failed to submit commitment");
             
@@ -353,13 +355,14 @@ mod tests {
 
         // Test data
         let commitment = FixedBytes::from([2u8; 32]);
+        let kzg_commitment = Bytes::from([2u8; 48]);
         let namespace = "test_namespace_2".to_string();
         let size = 2048u32;
         let total_chunks = 6u16;
         let required_chunks = 4u16;
 
         // Submit commitment
-        pod.submit_commitment(commitment, namespace, size, total_chunks, required_chunks)
+        pod.submit_commitment(commitment, namespace, size, total_chunks, required_chunks, kzg_commitment)
             .await
             .expect("Failed to submit commitment");
 
@@ -405,13 +408,14 @@ mod tests {
 
         // Test data
         let commitment = FixedBytes::from([3u8; 32]);
+        let kzg_commitment = Bytes::from([3u8; 48]);
         let namespace = "test_namespace_3".to_string();
         let size = 1024u32;
         let total_chunks = 6u16;
         let required_chunks = 4u16;
 
         // Submit commitment
-        pod.submit_commitment(commitment, namespace, size, total_chunks, required_chunks)
+        pod.submit_commitment(commitment, namespace, size, total_chunks, required_chunks, kzg_commitment)
             .await
             .expect("Failed to submit commitment");
 

@@ -1,11 +1,12 @@
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use crate::storage::{ChunkStorage, Chunk};
+use crate::storage::ChunkStorage;
 use anyhow::Result;
 use pod::FixedBytes;
 use serde_json;
 use async_trait::async_trait;
+use types::Chunk;
 
 pub struct FileStorage {
     base_path: PathBuf,
@@ -129,7 +130,6 @@ mod tests {
             index,
             data: b"Hello, World!".to_vec(),
             hash: FixedBytes::from_slice(&Keccak256::digest(b"chunk-data")),
-            merkle_proof: vec!["proof1".to_string(), "proof2".to_string()],
         }
     }
 
@@ -147,7 +147,6 @@ mod tests {
         assert_eq!(retrieved.data, chunk.data);
         assert_eq!(retrieved.index, chunk.index);
         assert_eq!(retrieved.hash, chunk.hash);
-        assert_eq!(retrieved.merkle_proof, chunk.merkle_proof);
     }
 
     #[tokio::test]

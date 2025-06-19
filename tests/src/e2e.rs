@@ -1,41 +1,40 @@
 #[allow(unused_imports, dead_code)]
 mod tests {
     use dispencer::{
-        dispenser::{REQUIRED_SHARDS, TOTAL_SHARDS},
-        http::{RetrieveDataRequest, RetrieveDataResponse, SubmitDataRequest, SubmitDataResponse},
+        dispenser::Dispenser, http::{RetrieveDataRequest, RetrieveDataResponse, SubmitDataRequest, SubmitDataResponse}
     };
     use pod::{client::{PodaClient, PodaClientTrait}, FixedBytes, PrivateKeySigner};
+    use reqwest::Response;
+    use types::{constants::{REQUIRED_SHARDS, TOTAL_SHARDS}, KzgCommitment, KzgProof};
     use anyhow::Result;
     use sha3::{Digest, Keccak256};
-    use crate::setup::setup_pod;
+    use crate::setup::{setup_pod, Setup};
+
+    // Create an invalid commitment by using a different random G1 point
+    use ark_bls12_381::G1Projective as G1;
+    use ark_std::UniformRand;
 
     const RPC_URL: &str = "http://localhost:8545";
     const N_ACTORS: usize = 4; // 1 dispencer + 3 storage providers
 
-    async fn check_health(url: &str, path: &str) -> Result<serde_json::Value> {
+    async fn check_health(url: &str, path: &str) -> Result<Response, reqwest::Error> {
         let client = reqwest::Client::new();
         let url = format!("{}/{}", url, path);
-        let response = client.get(&url).send().await?;
-        Ok(response.json().await?)
+        client.get(&url).send().await
     }
 
-    async fn delete_provider_chunk(provider_url: &str, namespace: &str, commitment: &FixedBytes<32>, chunks: &Vec<u16>) -> Result<()> {
+    async fn delete_provider_chunk(provider_url: &str, namespace: &str, commitment: &FixedBytes<32>, chunks: &Vec<u16>) -> Result<Response, reqwest::Error> {
         let client = reqwest::Client::new();
         let url = format!("{}/delete", provider_url);
-        let response = client.post(&url).json(&serde_json::json!({
+
+        client.post(&url).json(&serde_json::json!({
             "namespace": namespace,
             "commitment": commitment,
             "indices": chunks
-        })).send().await?;
-
-        if response.status().is_success() {
-            Ok(())
-        } else {
-            Err(anyhow::anyhow!("Failed to delete chunk"))
-        }
+        })).send().await
     }
 
-    async fn submit_data(dispencer_url: &str, namespace: &str, data: &[u8]) -> Result<SubmitDataResponse> {
+    async fn submit_data(dispencer_url: &str, namespace: &str, data: &[u8]) -> Result<Response, reqwest::Error> {
         let client = reqwest::Client::new();
         let url = format!("{}/submit", dispencer_url);
         let request_body = SubmitDataRequest {
@@ -43,13 +42,7 @@ mod tests {
             data: data.to_vec(),
         };
 
-        let response = client.post(&url).json(&request_body).send().await?;
-
-        if response.status().is_success() {
-            Ok(response.json().await?)
-        } else {
-            Err(anyhow::anyhow!("Failed to submit data"))
-        }
+        client.post(&url).json(&request_body).send().await
     }
 
     async fn retrieve_data(dispencer_url: &str, namespace: &str, commitment: &FixedBytes<32>) -> Result<Vec<u8>> {
@@ -72,26 +65,30 @@ mod tests {
 
     #[tokio::test]
     async fn test_setup() {
-        let (poda_address, dispencer_handle, storage_serve_handles) = setup_pod(N_ACTORS, RPC_URL).await;
+        let Setup { poda_address, dispencer_handle, dispencer_client: _, storage_server_handles } = setup_pod(N_ACTORS, RPC_URL).await;
         let random_signer = PrivateKeySigner::random();
         let poda_client = PodaClient::new(random_signer, RPC_URL.to_string(), poda_address).await;
 
         let health_response = check_health(&dispencer_handle.base_url, "health").await.unwrap();
-        assert_eq!(health_response["status"], "ok");
+        if !health_response.status().is_success() {
+            panic!("Dispencer health check failed: {}", health_response.text().await.unwrap());
+        }
 
         let providers = poda_client.get_providers().await.unwrap();
         for (i, provider) in providers.iter().enumerate() {
             let provider_url = provider.url.as_str();
-            assert_eq!(*provider_url, storage_serve_handles[i].base_url);
+            assert_eq!(*provider_url, storage_server_handles[i].base_url);
             let response = check_health(provider_url, "health").await.unwrap();
-            assert_eq!(response["status"], "ok");
+            if !response.status().is_success() {
+                panic!("Provider health check failed: {}", response.text().await.unwrap());
+            }
         }
     }
 
     #[tokio::test]
     async fn test_store_data() {
         #[allow(unused_variables)]
-        let (poda_address, dispencer_handle, server_handles) = setup_pod(N_ACTORS, RPC_URL).await;
+        let Setup { poda_address, dispencer_handle, dispencer_client, storage_server_handles } = setup_pod(N_ACTORS, RPC_URL).await;
         let random_signer = PrivateKeySigner::random();
         let poda_client = PodaClient::new(random_signer, RPC_URL.to_string(), poda_address).await;
 
@@ -100,6 +97,10 @@ mod tests {
         let commitment = FixedBytes::from_slice(&Keccak256::digest(&data));
 
         let assignments = submit_data(&dispencer_handle.base_url, namespace, &data).await.unwrap();
+        if !assignments.status().is_success() {
+            panic!("Failed to submit data: {}", assignments.text().await.unwrap());
+        }
+        let assignments: SubmitDataResponse = assignments.json().await.unwrap();
 
         let (commitment_info, is_recoverable) = poda_client.get_commitment_info(commitment).await.unwrap();
         assert_eq!(commitment_info.availableChunks, TOTAL_SHARDS as u16);
@@ -113,6 +114,7 @@ mod tests {
             let provider_chunks = poda_client.get_provider_chunks(commitment, provider.addr).await.unwrap();
             let assignment = assignments.assignments.get(&provider.name).unwrap();
 
+
             for chunk in assignment {
                 assert!(provider_chunks.contains(chunk));
             }
@@ -122,7 +124,7 @@ mod tests {
     #[tokio::test]
     async fn test_retrieve_data() {
         #[allow(unused_variables)]
-        let (poda_address, dispencer_handle, server_handles) = setup_pod(N_ACTORS, RPC_URL).await;
+        let Setup { poda_address, dispencer_handle, dispencer_client, storage_server_handles } = setup_pod(N_ACTORS, RPC_URL).await;
 
         let namespace = "test_namespace";
         let data = b"hello, world".repeat(10);
@@ -138,7 +140,7 @@ mod tests {
     #[tokio::test]
     async fn test_retrieve_some_data() {
         #[allow(unused_variables)]
-        let (poda_address, dispencer_handle, server_handles) = setup_pod(N_ACTORS, RPC_URL).await;
+        let Setup { poda_address, dispencer_handle, dispencer_client, storage_server_handles } = setup_pod(N_ACTORS, RPC_URL).await;
         let random_signer = PrivateKeySigner::random();
         let poda_client = PodaClient::new(random_signer, RPC_URL.to_string(), poda_address).await;
 
@@ -147,9 +149,13 @@ mod tests {
         let commitment = FixedBytes::from_slice(&Keccak256::digest(&data));
 
         let response = submit_data(&dispencer_handle.base_url, namespace, &data).await.unwrap();
+        if !response.status().is_success() {
+            panic!("Failed to submit data: {}", response.text().await.unwrap());
+        }
+        let assignments: SubmitDataResponse = response.json().await.unwrap();
 
         let providers = poda_client.get_providers().await.unwrap();
-        for (provider_name, chunks) in response.assignments.iter() {
+        for (provider_name, chunks) in assignments.assignments.iter() {
             let provider = providers.iter().find(|p| p.name == *provider_name).unwrap();
             let chunk_index = chunks.first().unwrap();
             delete_provider_chunk(provider.url.as_str(), namespace, &commitment, &vec![*chunk_index]).await.unwrap();
@@ -163,7 +169,7 @@ mod tests {
     #[tokio::test]
     async fn test_retrieve_no_data() {
         #[allow(unused_variables)]
-        let (poda_address, dispencer_handle, server_handles) = setup_pod(N_ACTORS, RPC_URL).await;
+        let Setup { poda_address, dispencer_handle, dispencer_client, storage_server_handles } = setup_pod(N_ACTORS, RPC_URL).await;
         let random_signer = PrivateKeySigner::random();
         let poda_client = PodaClient::new(random_signer, RPC_URL.to_string(), poda_address).await;
 
@@ -172,10 +178,14 @@ mod tests {
         let commitment = FixedBytes::from_slice(&Keccak256::digest(&data));
 
         let response = submit_data(&dispencer_handle.base_url, namespace, &data).await.unwrap();
+        if !response.status().is_success() {
+            panic!("Failed to submit data: {}", response.text().await.unwrap());
+        }
+        let assignments: SubmitDataResponse = response.json().await.unwrap();
 
         let providers = poda_client.get_providers().await.unwrap();
         let mut to_delete: usize = 9;
-        for (provider_name, chunks) in response.assignments.iter() {
+        for (provider_name, chunks) in assignments.assignments.iter() {
             let provider = providers.iter().find(|p| p.name == *provider_name).unwrap();
             let to_delete_chunks = chunks.iter().take(to_delete).map(|c| *c).collect::<Vec<_>>();
             delete_provider_chunk(provider.url.as_str(), namespace, &commitment, &to_delete_chunks).await.unwrap();
@@ -190,6 +200,36 @@ mod tests {
         match retrieve_data {
             Ok(data) => panic!("Retrieved data: {:?}", data),
             Err(e) => assert_eq!(e.to_string(), "Failed to retrieve data: Not enough chunks retrieved to reconstruct data"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_invalid_kzg_commitment() {
+        #[allow(unused_variables)]
+        let Setup { poda_address, dispencer_handle, dispencer_client, storage_server_handles } = setup_pod(N_ACTORS, RPC_URL).await;
+        let dispencer = Dispenser::new(dispencer_client.clone());
+
+        let namespace = "test_namespace";
+        let data = b"hello, world".repeat(10);
+        let commitment: FixedBytes<32> = FixedBytes::from_slice(&Keccak256::digest(&data));
+
+
+        let mut rng = ark_std::test_rng();
+        let invalid_g1_point = G1::rand(&mut rng);
+        let invalid_kzg_commitment = KzgCommitment::new(invalid_g1_point);
+        
+        dispencer_client.submit_commitment(commitment, namespace.to_string(), data.len() as u32, TOTAL_SHARDS as u16, REQUIRED_SHARDS as u16, invalid_kzg_commitment.try_into().unwrap()).await.unwrap();
+
+        let chunks = dispencer.erasure_encode(&data, REQUIRED_SHARDS, TOTAL_SHARDS);
+        let providers = dispencer_client.get_providers().await.unwrap();
+
+        let mut rng = ark_std::test_rng();
+        let another_invalid_g1_point = G1::rand(&mut rng);
+        let proof = KzgProof::new(another_invalid_g1_point);
+
+        let result = dispencer.batch_submit_to_provider(chunks, namespace.to_string(), commitment, &providers[0], proof).await;
+        if result.is_ok() {
+            panic!("Should have failed to submit chunks");
         }
     }
 }

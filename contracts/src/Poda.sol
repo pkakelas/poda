@@ -12,7 +12,7 @@ contract Poda {
         uint16 totalChunks;    // Total erasure coded chunks (n)
         uint16 requiredChunks; // Chunks needed for recovery (k)
         uint16 availableChunks; // How many unique chunks we have
-        // Total: 14 bytes (fits in single slot)
+        bytes kzgCommitment;   // KZG commitment
     }
     
     struct Provider {
@@ -133,7 +133,8 @@ contract Poda {
         string calldata namespace,
         uint32 size,
         uint16 totalChunks,    // n (encoded chunks)
-        uint16 requiredChunks  // k (original chunks)
+        uint16 requiredChunks, // k (original chunks)
+        bytes calldata kzgCommitment
     ) external {
         require(commitment != bytes32(0), "Invalid commitment");
         require(commitments[commitment].timestamp == 0, "Commitment already exists");
@@ -141,7 +142,8 @@ contract Poda {
         require(totalChunks > requiredChunks, "Invalid Reed-Solomon parameters");
         require(totalChunks <= MAX_CHUNKS, "Too many chunks");
         require(bytes(namespace).length > 0, "Empty namespace");
-        
+        require(kzgCommitment.length == 48, "Invalid KZG commitment length");
+
         // Validate redundancy ratio (prevent wasteful encoding)
         require(
             (totalChunks * 100) / requiredChunks >= MIN_REDUNDANCY_RATIO,
@@ -153,7 +155,8 @@ contract Poda {
             timestamp: uint32(block.timestamp),
             totalChunks: totalChunks,
             requiredChunks: requiredChunks,
-            availableChunks: 0
+            availableChunks: 0,
+            kzgCommitment: kzgCommitment
         });
         
         namespaceHashes[commitment] = keccak256(bytes(namespace));

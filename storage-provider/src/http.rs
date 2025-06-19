@@ -1,18 +1,20 @@
 use std::convert::Infallible;
 use std::sync::Arc;
 use alloy::primitives::FixedBytes;
+use kzg::{kzg_multi_verify, kzg_verify};
 use warp::Filter;
 use serde::{Deserialize, Serialize};
 use pod::client::{PodaClient, PodaClientTrait};
-use crate::storage::{ChunkStorage, Chunk};
+use crate::storage::ChunkStorage;
+use types::{Chunk, KzgProof};
 use hex;
-
 
 #[derive(Debug, Deserialize)]
 struct StoreRequest {
     commitment: FixedBytes<32>,
     namespace: String,
     chunk: Chunk,
+    kzg_proof: KzgProof,
 }
 
 #[derive(Debug, Serialize)]
@@ -31,6 +33,7 @@ pub struct BatchStoreRequest {
     pub commitment: FixedBytes<32>,
     pub namespace: String,
     pub chunks: Vec<Chunk>,
+    pub kzg_proof: KzgProof,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -71,6 +74,7 @@ pub async fn start_server<T: ChunkStorage + Send + Sync + 'static>(
 ) {
     let storage_filter = warp::any().map(move || storage.clone());
     let pod_filter = warp::any().map(move || pod.clone());
+
 
     // POST /store - Store a new chunk
     let store = warp::path("store")
@@ -158,12 +162,34 @@ async fn handle_store<T: ChunkStorage>(
     storage: Arc<T>,
     pod: Arc<PodaClient>,
 ) -> Result<impl warp::Reply, Infallible> {
-    let index = request.chunk.index as u16;
+    let commitment = pod.get_commitment_info(request.commitment).await;
+    if commitment.is_err() {
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&StoreResponse {
+                success: false,
+                message: format!("Failed to get commitment info: {:?}", commitment.err()),
+            }),
+            warp::http::StatusCode::INTERNAL_SERVER_ERROR,
+        ));
+    }
+
+    let (commitment_info, _) = commitment.unwrap();
+    let is_valid = kzg_verify(&request.chunk, request.chunk.index as usize, commitment_info.kzgCommitment.try_into().unwrap(), request.kzg_proof);
+    if !is_valid {
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&StoreResponse {
+                success: false,
+                message: "KZG proof verification failed".to_string(),
+            }),
+            warp::http::StatusCode::BAD_REQUEST,
+        ));
+    }
+
     match storage.store(request.namespace, request.commitment, &request.chunk).await {
         Ok(_) => {
             println!("Chunk stored successfully");
 
-            let res = pod.submit_chunk_attestations(request.commitment, vec![index]).await;
+            let res = pod.submit_chunk_attestations(request.commitment, vec![request.chunk.index]).await;
             if res.is_err() {
                 return Ok(warp::reply::with_status(
                     warp::reply::json(&StoreResponse {
@@ -171,6 +197,16 @@ async fn handle_store<T: ChunkStorage>(
                         message: format!("Failed to submit chunk attestation: {:?}", res.err()),
                     }),
                     warp::http::StatusCode::INTERNAL_SERVER_ERROR,
+                ));
+            }
+
+            if !is_valid {
+                return Ok(warp::reply::with_status(
+                    warp::reply::json(&StoreResponse {
+                        success: false,
+                        message: "KZG proof verification failed".to_string(),
+                    }),
+                    warp::http::StatusCode::INTERNAL_SERVER_ERROR,  
                 ));
             }
 
@@ -194,6 +230,45 @@ async fn handle_store<T: ChunkStorage>(
             ))
         }
     }
+}
+
+async fn handle_batch_retrieve<T: ChunkStorage>(
+    request: BatchRetrieveRequest,
+    storage: Arc<T>,
+    _: Arc<PodaClient>,
+) -> Result<impl warp::Reply, Infallible> {
+    println!("Retrieving chunks: {:?}", request);
+    let mut chunks = Vec::new();
+    let mut errors = Vec::new();
+
+    for index in &request.indices {
+        match storage.retrieve(request.namespace.clone(), request.commitment, *index).await {
+            Ok(Some(chunk)) => {
+                chunks.push(Some(chunk));
+            }
+            Ok(None) => {
+                errors.push(format!("Chunk not found at index: {}", index));
+                chunks.push(None);
+            }
+            Err(_) => {
+                errors.push(format!("Failed to retrieve chunk at index: {}", index));
+                chunks.push(None);
+            }
+        }
+    }
+
+    let none_chunks = chunks.iter().filter(|c| c.is_none()).count();
+    if none_chunks == request.indices.len() {
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({"error": "All chunks not found"})),
+            warp::http::StatusCode::NOT_FOUND,
+        ));
+    }
+
+    Ok(warp::reply::with_status(
+        warp::reply::json(&BatchRetrieveResponse { chunks: chunks }),
+        warp::http::StatusCode::OK,
+    ))
 }
 
 async fn handle_retrieve<T: ChunkStorage>(
@@ -330,6 +405,37 @@ async fn handle_batch_store<T: ChunkStorage>(
     storage: Arc<T>,
     pod: Arc<PodaClient>,
 ) -> Result<impl warp::Reply, Infallible> {
+    let commitment = pod.get_commitment_info(request.commitment).await;
+    if commitment.is_err() {
+        let err = commitment.err();
+
+        println!("[STORAGE_PROVIDER] Failed to get commitment info: {:?}", err);
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&StoreResponse {
+                success: false,
+                message: format!("Failed to get commitment info: {:?}", err),
+            }),
+            warp::http::StatusCode::INTERNAL_SERVER_ERROR,
+        ));
+    }
+
+    let (commitment_info, _) = commitment.unwrap();
+    println!("[STORAGE_PROVIDER] Got commitment info: {:?}", commitment_info);
+    let chunk_indices = request.chunks.iter().map(|c| c.index as usize).collect::<Vec<_>>();
+    println!("[STORAGE_PROVIDER] Verifying KZG proof for chunks: {:?}", chunk_indices);
+    let is_valid = kzg_multi_verify(&request.chunks, chunk_indices.as_slice(), commitment_info.kzgCommitment.try_into().unwrap(), request.kzg_proof);
+    println!("[STORAGE_PROVIDER] KZG proof verification result: {:?}", is_valid);
+
+    if !is_valid {
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&StoreResponse {
+                success: false,
+                message: "KZG proof verification failed".to_string(),
+            }),
+            warp::http::StatusCode::BAD_REQUEST,
+        ));
+    }
+
     for chunk in &request.chunks {
         match storage.store(request.namespace.clone(), request.commitment, &chunk).await {
             Ok(_) => {
@@ -357,45 +463,6 @@ async fn handle_batch_store<T: ChunkStorage>(
     }
 
     Ok(warp::reply::with_status(warp::reply::json(&serde_json::json!({"success": true})), warp::http::StatusCode::OK))
-}
-
-async fn handle_batch_retrieve<T: ChunkStorage>(
-    request: BatchRetrieveRequest,
-    storage: Arc<T>,
-    _: Arc<PodaClient>,
-) -> Result<impl warp::Reply, Infallible> {
-    println!("Retrieving chunks: {:?}", request);
-    let mut chunks = Vec::new();
-    let mut errors = Vec::new();
-
-    for index in &request.indices {
-        match storage.retrieve(request.namespace.clone(), request.commitment, *index).await {
-            Ok(Some(chunk)) => {
-                chunks.push(Some(chunk));
-            }
-            Ok(None) => {
-                errors.push(format!("Chunk not found at index: {}", index));
-                chunks.push(None);
-            }
-            Err(_) => {
-                errors.push(format!("Failed to retrieve chunk at index: {}", index));
-                chunks.push(None);
-            }
-        }
-    }
-
-    let none_chunks = chunks.iter().filter(|c| c.is_none()).count();
-    if none_chunks == request.indices.len() {
-        return Ok(warp::reply::with_status(
-            warp::reply::json(&serde_json::json!({"error": "All chunks not found"})),
-            warp::http::StatusCode::NOT_FOUND,
-        ));
-    }
-
-    Ok(warp::reply::with_status(
-        warp::reply::json(&BatchRetrieveResponse { chunks: chunks }),
-        warp::http::StatusCode::OK,
-    ))
 }
 
 async fn handle_list<T: ChunkStorage>(

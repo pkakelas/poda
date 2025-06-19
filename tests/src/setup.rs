@@ -32,12 +32,19 @@ pub struct Actor {
     private_key: String,
 }
 
+pub struct Setup {
+    pub poda_address: Address,
+    pub dispencer_handle: ServerHandle,
+    pub dispencer_client: PodaClient,
+    pub storage_server_handles: Vec<ServerHandle>,
+}
+
 const FAUCET_PRIVATE_KEY: &str = "6df79891f22b0f3c9e9fb53b966a8861fd6fef69f99772c5c4dbcf303f10d901";
 const ONE_ETH: u128 = 1000000000000000000;
 const MIN_STAKE: u128 = ONE_ETH / 100;
 
 // n_actors: Number of actors in setup. 1 will be dispencer, the rest will be storage providers
-pub async fn setup_pod(n_actors: usize, rpc_url: &str) -> (Address, ServerHandle, Vec<ServerHandle>) {
+pub async fn setup_pod(n_actors: usize, rpc_url: &str) -> Setup {
     println!("Setting up pod");
     let faucet = PrivateKeySigner::from_str(FAUCET_PRIVATE_KEY).expect("Invalid private key");
     let faucet_address = faucet.address();
@@ -79,7 +86,12 @@ pub async fn setup_pod(n_actors: usize, rpc_url: &str) -> (Address, ServerHandle
     let providers = dispencer_client.get_providers().await.unwrap();
     println!("Providers: {:?}", providers);
 
-    (poda_address, dispencer_handle, server_handles)
+    Setup {
+        poda_address,
+        dispencer_handle,
+        dispencer_client,
+        storage_server_handles: server_handles,
+    }
 }
 
 pub async fn get_provider_for_signer(signer: PrivateKeySigner, rpc_url: &str) -> PodProvider {

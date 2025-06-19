@@ -1,14 +1,6 @@
 use alloy::primitives::FixedBytes;
 use anyhow::Result;
-use serde::{Serialize, Deserialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Chunk {
-    pub index: u16,
-    pub data: Vec<u8>,
-    pub hash: FixedBytes<32>,
-    pub merkle_proof: Vec<String>,
-}
+use types::Chunk;
 
 #[async_trait::async_trait]
 pub trait ChunkStorage {
