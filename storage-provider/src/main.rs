@@ -20,7 +20,7 @@ fn load_config() -> (String, Address, u16, String) {
 }
 
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 pub async fn main() {
     let (rpc_url, poda_address, port, private_key) = load_config();
 

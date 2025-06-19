@@ -1,14 +1,18 @@
 #[allow(unused_imports, dead_code)]
+#[cfg(test)]
 mod tests {
+    use crate::setup;
+
     use dispencer::{
         dispenser::Dispenser, http::{RetrieveDataRequest, RetrieveDataResponse, SubmitDataRequest, SubmitDataResponse}
     };
     use pod::{client::{PodaClient, PodaClientTrait}, FixedBytes, PrivateKeySigner};
     use reqwest::Response;
-    use types::{constants::{REQUIRED_SHARDS, TOTAL_SHARDS}, KzgCommitment, KzgProof};
+    use types::{constants::{REQUIRED_SHARDS, TOTAL_SHARDS}};
+    use kzg::types::{KzgCommitment, KzgProof};
     use anyhow::Result;
     use sha3::{Digest, Keccak256};
-    use crate::setup::{setup_pod, Setup};
+    use setup::setup::{setup_pod, Setup};
 
     // Create an invalid commitment by using a different random G1 point
     use ark_bls12_381::G1Projective as G1;

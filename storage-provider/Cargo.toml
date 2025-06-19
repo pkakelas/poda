@@ -8,12 +8,10 @@ anyhow = "1.0.98"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 async-trait = "0.1.77"
-tokio = { version = "1.36.0", features = ["full"] }
+tokio = { version = "1.45.0", features = ["rt"] }
 warp = "0.3.7"
 hex = "0.4.3"
-pod-sdk = { git = "https://github.com/podnetwork/pod-sdk" }
 alloy = { version = "0.12.1", features = ["sol-types", "contract"] }
-futures = "0.3.31"
 alloy-sol-types = "1.2.0"
 rand = "0.9.1"
 pod = { path = "../pod" }
@@ -24,5 +22,5 @@ kzg = { version = "0.1.0", path = "../kzg" }
 
 [dev-dependencies]
 tempfile = "3.10.1"
-reqwest = { version = "0.11.24", features = ["json"] }
+reqwest = { version = "0.12.12", features = ["json"] }
 tokio-test = "0.4.3"

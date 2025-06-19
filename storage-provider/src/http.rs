@@ -6,7 +6,8 @@ use warp::Filter;
 use serde::{Deserialize, Serialize};
 use pod::client::{PodaClient, PodaClientTrait};
 use crate::storage::ChunkStorage;
-use types::{Chunk, KzgProof};
+use kzg::types::KzgProof;
+use types::Chunk;
 use hex;
 
 #[derive(Debug, Deserialize)]

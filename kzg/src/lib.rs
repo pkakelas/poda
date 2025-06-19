@@ -1,13 +1,15 @@
 mod kzg;
 mod utils;
+pub mod types;
 
 use ark_bls12_381::{Bls12_381, Fr, FrConfig, G1Projective as G1, G2Projective as G2};
-use ark_ec::Group;
-use ark_ff::{Field, Fp, MontBackend};
-use types::{Chunk, KzgCommitment, KzgProof};
+use ark_ec::PrimeGroup;
+use ark_ff::AdditiveGroup;
+use ark_ff::{Fp, MontBackend};
+use ::types::{Chunk, constants::TOTAL_SHARDS};
+use types::{KzgCommitment, KzgProof};
 use kzg::KZG;
 use utils::interpolate;
-use types::constants::TOTAL_SHARDS;
 use utils::{load_ethereum_ceremony};
 use std::sync::OnceLock;
 use std::sync::Arc;
@@ -231,7 +233,7 @@ mod tests {
 
     #[test]
     fn test_kzg_manager_with_total_shards() {
-        use types::constants::TOTAL_SHARDS;
+        use ::types::constants::TOTAL_SHARDS;
         
         // Create chunks for the actual TOTAL_SHARDS
         let mut chunks = Vec::new();

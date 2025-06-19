@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 hex = "0.4.3"
-tokio = "1.36"
+tokio = { version = "1.45.0", features = ["rt"] }
 pod-sdk = { git = "https://github.com/podnetwork/pod-sdk" }
 anyhow = "1.0.98"
 alloy = { version = "0.12.1", features = ["sol-types", "contract"] }

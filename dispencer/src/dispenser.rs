@@ -3,10 +3,10 @@ use std::{collections::HashMap, iter::zip};
 use anyhow::Result;
 use pod::{client::{PodaClientTrait, ProviderInfo}, FixedBytes, U256};
 use storage_provider::http::{BatchRetrieveRequest, BatchRetrieveResponse, BatchStoreRequest};
-use types::{constants::{REQUIRED_SHARDS, TOTAL_SHARDS}, Chunk, KzgProof};
+use types::{constants::{REQUIRED_SHARDS, TOTAL_SHARDS}, Chunk};
 use reed_solomon_erasure::ReedSolomon;
 use sha3::{Digest, Keccak256};
-use kzg::{kzg_commit, kzg_multi_prove};
+use kzg::{kzg_commit, kzg_multi_prove, types::KzgProof};
 
 // Map of id to chunk
 type ChunkAssignment = HashMap<String, Vec<Chunk>>;
@@ -426,11 +426,11 @@ mod tests {
         
         // Test multiple selections to verify distribution
         let mut selections = HashMap::new();
-        let test_commitment = b"test_commitment";
+        let test_commitment = FixedBytes::<32>::from_slice(&Keccak256::digest("test_commitment"));
         
         for i in 0..1000 {
             let provider = dispenser.select_provider_for_chunk(
-                &FixedBytes::from_slice(&test_commitment.as_slice()),
+                &test_commitment,
                 i as u16,
                 &providers,
                 total_stake

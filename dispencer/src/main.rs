@@ -10,15 +10,15 @@ use dotenv::dotenv;
 fn load_config() -> (String, Address, u16, String) {
     dotenv().ok();
 
-    let port = std::env::var("PORT").unwrap().parse::<u16>().unwrap();
-    let private_key = std::env::var("PRIVATE_KEY").unwrap();
-    let rpc_url = std::env::var("RPC_URL").unwrap();
+    let port = std::env::var("DISPENCER_PORT").unwrap().parse::<u16>().unwrap();
+    let private_key = std::env::var("DISPENCER_PRIVATE_KEY").unwrap();
+    let rpc_url = std::env::var("POD_RPC_URL").unwrap();
     let poda_address = std::env::var("PODA_ADDRESS").unwrap().parse::<Address>().unwrap();
 
     (rpc_url, poda_address, port, private_key)
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     let (rpc_url, poda_address, port, private_key) = load_config();
 

@@ -6,9 +6,6 @@ edition = "2024"
 [dependencies]
 alloy = { version = "0.12.1", features = ["sol-types", "contract"] }
 serde = { version = "1.0.219", features = ["derive"] }
-ark-bls12-381 = "0.4"
-ark-serialize = "0.4"
-ark-std = "0.4"
 hex = "0.4"
 
 [dev-dependencies]

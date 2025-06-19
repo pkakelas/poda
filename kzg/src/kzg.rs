@@ -12,13 +12,14 @@ pub struct KZG<E: Pairing> {
     pub crs_g2: Vec<E::G2>,
 }
 
+
 impl <E:Pairing> KZG<E> {
     #[allow(dead_code)]
     pub fn new(g1: E::G1, g2: E::G2, degree: usize) -> Self {
         Self {
             g1,
             g2,
-            g2_tau: g2.mul(E::ScalarField::ZERO),
+            g2_tau: g2.mul(E::ScalarField::default()),
             degree,
             crs_g1: vec![],
             crs_g2: vec![],
@@ -67,7 +68,7 @@ impl <E:Pairing> KZG<E> {
     }
 
     pub fn commit(&self, poly: &[E::ScalarField]) -> E::G1 {
-        let mut commitment = self.g1.mul(E::ScalarField::ZERO);
+        let mut commitment = self.g1.mul(E::ScalarField::default());
         for i in 0..self.degree+1 {
             commitment += self.crs_g1[i] * poly[i];
         }
@@ -91,7 +92,7 @@ impl <E:Pairing> KZG<E> {
         let quotient = div(numerator, &denominator).unwrap();
 
         // calculate pi as proof (quotient multiplied by CRS)
-        let mut pi = self.g1.mul(E::ScalarField::ZERO);
+        let mut pi = self.g1.mul(E::ScalarField::default());
         for i in 0..quotient.len() {
             pi += self.crs_g1[i] * quotient[i];
         }
@@ -113,7 +114,7 @@ impl <E:Pairing> KZG<E> {
             values.push(evaluate(poly, points[i]));
         }
         let mut lagrange_poly = interpolate(points, &values).unwrap();
-        lagrange_poly.resize(poly.len(), E::ScalarField::ZERO); // pad with zeros
+        lagrange_poly.resize(poly.len(), E::ScalarField::default()); // pad with zeros
 
         // numerator is the difference between the polynomial and the Lagrange interpolation
         let mut numerator = Vec::with_capacity(poly.len());
@@ -125,7 +126,7 @@ impl <E:Pairing> KZG<E> {
         let quotient = div(&numerator, &zero_poly).unwrap();
 
         // calculate pi as proof (quotient multiplied by CRS)
-        let mut pi = self.g1.mul(E::ScalarField::ZERO);
+        let mut pi = self.g1.mul(E::ScalarField::default());
         for i in 0..quotient.len() {
             pi += self.crs_g1[i] * quotient[i];
         }
@@ -160,7 +161,7 @@ impl <E:Pairing> KZG<E> {
         }
 
         // compute commitment of zero polynomial in regards to crs_g2
-        let mut zero_commitment = self.g2.mul(E::ScalarField::ZERO);
+        let mut zero_commitment = self.g2.mul(E::ScalarField::default());
         for i in 0..std::cmp::min(zero_poly.len(), self.crs_g2.len()) {
             zero_commitment += self.crs_g2[i] * zero_poly[i];
         }
@@ -169,7 +170,7 @@ impl <E:Pairing> KZG<E> {
         let lagrange_poly = interpolate(points, &values).unwrap();
 
         // compute commitment of lagrange polynomial in regards to crs_g1
-        let mut lagrange_commitment = self.g1.mul(E::ScalarField::ZERO);
+        let mut lagrange_commitment = self.g1.mul(E::ScalarField::default());
         for i in 0..std::cmp::min(lagrange_poly.len(), self.crs_g1.len()) {
             lagrange_commitment += self.crs_g1[i] * lagrange_poly[i];
         }
