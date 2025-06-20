@@ -36,6 +36,7 @@ pub trait PodaClientTrait {
     async fn respond_to_chunk_challenge(&self, commitment: FixedBytes<32>, chunk_id: u16, proof: FixedBytes<32>) -> Result<()>;
     async fn deploy_poda(provider: PodProvider, owner: Address, min_stake: u128) -> Result<Address>;
     async fn wait_for_availability(&self, commitment: FixedBytes<32>) -> Result<()>;
+    async fn verify_chunk_proof(&self, proof: Vec<FixedBytes<32>>, root: FixedBytes<32>, chunk_index: u16, chunk_data: Bytes) -> Result<bool>;
 }
 
 #[derive(Clone)]
@@ -233,6 +234,11 @@ impl PodaClientTrait for PodaClient {
             }
             Err(e) => Err(anyhow::anyhow!("Failed to get receipt: {}", e))
         }
+    }
+
+    async fn verify_chunk_proof(&self, proof: Vec<FixedBytes<32>>, root: FixedBytes<32>, chunk_index: u16, chunk_data: Bytes) -> Result<bool> {
+        let verify = self.contract.verifyChunkProof(proof, root, chunk_index, chunk_data).call().await?;
+        Ok(verify._0)
     }
 
     async fn deploy_poda(provider: PodProvider, owner: Address, min_stake: u128) -> Result<Address> {

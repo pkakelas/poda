@@ -1,8 +1,8 @@
 pub mod constants;
 
-use alloy::primitives::Keccak256;
 use serde::{Serialize, Deserialize};
-pub use alloy::primitives::{FixedBytes, Bytes};
+pub use alloy::primitives::{FixedBytes, Bytes, B256, Address, keccak256, U256};
+pub use alloy::sol_types::SolValue;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Chunk {
@@ -12,9 +12,7 @@ pub struct Chunk {
 
 impl Chunk {
     pub fn hash(&self) -> FixedBytes<32> {
-        let mut hasher = Keccak256::new();
-        hasher.update(&self.data);
-        let hash = hasher.finalize();
-        FixedBytes::from_slice(&hash[..])
+        let data = self.data.as_slice();
+        keccak256((self.index, keccak256(data)).abi_encode())
     }
 }

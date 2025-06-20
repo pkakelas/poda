@@ -1,14 +1,17 @@
 #[allow(unused_imports, dead_code)]
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use crate::setup;
 
     use dispencer::{
         dispenser::Dispenser, http::{RetrieveDataRequest, RetrieveDataResponse, SubmitDataRequest, SubmitDataResponse}
     };
+    use merkle_tree::MerkleProof;
     use pod::{client::{PodaClient, PodaClientTrait}, FixedBytes, PrivateKeySigner};
     use reqwest::Response;
-    use types::{constants::{REQUIRED_SHARDS, TOTAL_SHARDS}};
+    use types::{constants::{REQUIRED_SHARDS, TOTAL_SHARDS}, Chunk};
     use kzg::types::{KzgCommitment, KzgProof};
     use anyhow::Result;
     use sha3::{Digest, Keccak256};
@@ -236,7 +239,48 @@ mod tests {
             panic!("Should have failed to submit chunks");
         }
     }
+
+    #[tokio::test]
+    async fn test_verify_chunk_proofs() {
+        let Setup { poda_address: _, dispencer_handle: _, dispencer_client, storage_server_handles: _ } = setup_pod(N_ACTORS, RPC_URL).await;
+
+        let chunks: Vec<Chunk> = vec![
+            Chunk { index: 0, data: b"hello".to_vec() },
+            Chunk { index: 1, data: b"world".to_vec() },
+            Chunk { index: 2, data: b"hello".to_vec() },
+            Chunk { index: 3, data: b"world".to_vec() }
+        ];
+
+        let tree = merkle_tree::gen_merkle_tree(&chunks);
+        
+        let root = tree.root();
+
+        for chunk in &chunks {
+            let proof = merkle_tree::gen_proof(&tree, chunk.clone()).unwrap();
+            let result = dispencer_client.verify_chunk_proof(proof.path.clone(), root, chunk.index, chunk.data.clone().into()).await.unwrap();
+            assert_eq!(result, true);
+        }
+
+        let invalid_proof = MerkleProof {
+            path: vec![tree.root()],
+        };
+        let result = dispencer_client.verify_chunk_proof(invalid_proof.path.clone(), root, 0, chunks[0].clone().data.into()).await.unwrap();
+        assert_eq!(result, false);
+
+        let proof = merkle_tree::gen_proof(&tree, chunks[0].clone()).unwrap();
+        let result = dispencer_client.verify_chunk_proof(proof.path.clone(), root, 1, chunks[0].clone().data.into()).await.unwrap();
+        assert_eq!(result, false);
+
+        let proof = merkle_tree::gen_proof(&tree, chunks[0].clone()).unwrap();
+        let result = dispencer_client.verify_chunk_proof(proof.path.clone(), root, 0, chunks[1].clone().data.into()).await.unwrap();
+        assert_eq!(result, false);
+
+        let proof = merkle_tree::gen_proof(&tree, chunks[0].clone()).unwrap();
+        let result = dispencer_client.verify_chunk_proof(proof.path.clone(), root, 0, chunks[0].clone().data.into()).await.unwrap();
+        assert_eq!(result, true);
+    }
 }
+
 
 
 

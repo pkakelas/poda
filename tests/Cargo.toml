@@ -20,3 +20,4 @@ types = { version = "0.1.0", path = "../types" }
 ark-bls12-381 = "0.5"
 ark-std = "0.5"
 kzg = { path = "../kzg" }
+merkle_tree = { version = "0.1.0", path = "../merkle_tree" }
