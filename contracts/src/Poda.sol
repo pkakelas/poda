@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
+import { MerkleProof } from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
+
 contract Poda {
     // =============================================================================
     // STRUCTS (Optimized for Reed-Solomon)
@@ -34,12 +36,6 @@ contract Poda {
         uint256 stakedAmount;
     }
     
-    struct ChunkAttestationData {
-        address provider;
-        uint16 chunkId;
-        uint32 timestamp;
-    }
-
     // =============================================================================
     // STORAGE (Gas Optimized for Chunks)
     // =============================================================================
@@ -332,24 +328,25 @@ contract Poda {
         require(challengeId != bytes32(0), "No active challenge");
         require(proof != bytes32(0), "Invalid proof");
 
-        if (verifyProof(msg.sender, commitment, chunkId, proof)) {
-            providers[msg.sender].challengeSuccessCount++;
-            return;
-        }
+        // if (verifyProof(msg.sender, commitment, chunkId, proof)) {
+        //     providers[msg.sender].challengeSuccessCount++;
+        //     return;
+        // }
 
 
         slashProviderChunk(commitment, chunkId, msg.sender);
         activeChunkChallenges[commitment][chunkId][msg.sender] = bytes32(0);
     }
     
-    // TODO: Implement proof
-    function verifyProof(
-        address provider,
-        bytes32 commitment,
-        uint16 chunkId,
-        bytes32 proof
-    ) internal pure returns (bool) {
-        return true;
+    function verifyChunkProof(
+        bytes32[] calldata proof,
+        bytes32 root,
+        uint16 chunkIndex,
+        bytes calldata chunkData
+    ) public pure returns (bool) {
+        bytes32 chunkHash = keccak256(chunkData);
+        bytes32 leaf = keccak256(abi.encode(chunkIndex, chunkHash));
+        return MerkleProof.verify(proof, root, leaf);
     }
     
     function slashProviderChunk(

@@ -6,7 +6,7 @@ import "../src/Poda.sol";
 
 contract PodaTest is Test {
     Poda public poda;
-    
+
     // Test accounts
     address owner = makeAddr("owner");
     address alice = makeAddr("alice");
