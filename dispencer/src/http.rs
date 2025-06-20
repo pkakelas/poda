@@ -4,7 +4,6 @@ use pod::FixedBytes;
 use warp::Filter;
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
-use sha3::{Digest, Keccak256};
 use crate::dispenser::Dispenser;
 use pod::client::PodaClientTrait;
 
@@ -89,9 +88,7 @@ async fn handle_submit_data<T: PodaClientTrait>(
     dispenser: Arc<Dispenser<T>>,
 ) -> Result<impl warp::Reply, Infallible> {
     match dispenser.submit_data(request.namespace, &request.data).await {
-        Ok(assignments) => {
-            let commitment: FixedBytes<32> = FixedBytes::from_slice(&Keccak256::digest(&request.data));
-
+        Ok((commitment, assignments)) => {
             // Convert assignments to a simpler format for JSON serialization
             let mut assignments_json = std::collections::HashMap::new();
             for (provider_name, chunks) in assignments {

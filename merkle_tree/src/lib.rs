@@ -1,7 +1,7 @@
 mod hash;  
 mod tree;
 
-use types::Chunk;
+use types::{Chunk, FixedBytes};
 use anyhow::Result;
 pub use crate::tree::{MerkleProof, MerkleTree, StandardMerkleTree};
 
@@ -14,8 +14,8 @@ pub fn gen_proof(merkle_tree: &StandardMerkleTree, leaf: Chunk) -> Result<Merkle
     merkle_tree.generate_proof(leaf.hash())
 }
 
-pub fn verify_proof(merkle_tree: &StandardMerkleTree, leaf: Chunk, proof: MerkleProof) -> bool {
-    MerkleTree::verify_proof(merkle_tree.root(), leaf.hash(), proof)
+pub fn verify_proof(root: FixedBytes<32>, leaf: &Chunk, proof: MerkleProof) -> bool {
+    MerkleTree::verify_proof(root, leaf.hash(), proof)
 }
 
 #[cfg(test)]
@@ -48,7 +48,7 @@ mod tests {
 
         for chunk in chunks {
             let proof = gen_proof(&merkle_tree, chunk.clone()).unwrap();
-            assert_eq!(verify_proof(&merkle_tree, chunk.clone(), proof), true);
+            assert_eq!(verify_proof(merkle_tree.root(), &chunk, proof), true);
         }
     }
 
@@ -58,6 +58,6 @@ mod tests {
         let merkle_tree = gen_merkle_tree(&chunks);
 
         let proof = gen_proof(&merkle_tree, chunks[0].clone()).unwrap();
-        assert_eq!(verify_proof(&merkle_tree, chunks[1].clone(), proof), false);
+        assert_eq!(verify_proof(merkle_tree.root(), &chunks[1], proof), false);
     }
 }

@@ -129,9 +129,7 @@ fn gen_polynomial(data: &Vec<Chunk>, degree: usize) -> Vec<Fp<MontBackend<FrConf
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pod::FixedBytes;
     use rand::random;
-    use sha3::{Digest, Keccak256};
 
     fn get_sample_chunks() -> Vec<Chunk> {
         let mut chunks = Vec::new();

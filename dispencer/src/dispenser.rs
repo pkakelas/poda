@@ -1,6 +1,7 @@
 use std::{collections::HashMap, iter::zip};
 
 use anyhow::Result;
+use merkle_tree::{gen_merkle_tree, MerkleProof};
 use pod::{client::{PodaClientTrait, ProviderInfo}, FixedBytes, U256};
 use storage_provider::http::{BatchRetrieveRequest, BatchRetrieveResponse, BatchStoreRequest};
 use types::{constants::{REQUIRED_SHARDS, TOTAL_SHARDS}, Chunk};
@@ -8,7 +9,6 @@ use reed_solomon_erasure::ReedSolomon;
 use sha3::{Digest, Keccak256};
 use kzg::{kzg_commit, kzg_multi_prove, types::KzgProof};
 
-// Map of id to chunk
 type ChunkAssignment = HashMap<String, Vec<Chunk>>;
 
 pub struct Dispenser<T: PodaClientTrait> {
@@ -20,24 +20,25 @@ impl<T: PodaClientTrait> Dispenser<T> {
         Self { pod }
     }
 
-    pub async fn submit_data(&self, namespace: String, data: &[u8]) -> Result<ChunkAssignment> {
+    pub async fn submit_data(&self, namespace: String, data: &[u8]) -> Result<(FixedBytes<32>, ChunkAssignment)> {
         let storage_providers = self.pod.get_providers().await?.iter().map(|p| p.clone()).collect::<Vec<_>>();
-        let commitment: FixedBytes<32> = FixedBytes::from_slice(&Keccak256::digest(data));
-
         let chunks = self.erasure_encode(data, REQUIRED_SHARDS, TOTAL_SHARDS);
+        let merkle_tree = gen_merkle_tree(&chunks);
 
         let (kzg_commitment, _) = kzg_commit(&chunks);
-        self.pod.submit_commitment(commitment, namespace.clone(), data.len() as u32, TOTAL_SHARDS as u16, REQUIRED_SHARDS as u16, kzg_commitment.try_into().unwrap()).await?;
+        self.pod.submit_commitment(merkle_tree.root(), namespace.clone(), data.len() as u32, TOTAL_SHARDS as u16, REQUIRED_SHARDS as u16, kzg_commitment.try_into().unwrap()).await?;
 
         let assignments = self.assign_chunks(&chunks, &storage_providers)?;
 
         let mut promised_chunks: usize = 0;
         for (provider_id, provider_chunks) in &assignments {
             let chunk_ids = provider_chunks.iter().map(|c| c.index as usize).collect::<Vec<_>>();
-            // Generate proof from all chunks but only for the indices this provider needs
-            let proof = kzg_multi_prove(&chunks, &chunk_ids);
+
+            let kzg_proof = kzg_multi_prove(&chunks, &chunk_ids);
+            let merkle_proofs = provider_chunks.iter().map(|c| merkle_tree::gen_proof(&merkle_tree, c.clone()).unwrap()).collect::<Vec<_>>();
+
             let provider = storage_providers.iter().find(|p| p.name == *provider_id).unwrap();
-            let result = self.batch_submit_to_provider(provider_chunks.clone(), namespace.clone(), commitment, provider, proof).await;
+            let result = self.batch_submit_to_provider(provider_chunks.clone(), namespace.clone(), merkle_tree.root(), provider, kzg_proof, merkle_proofs).await;
             if result.is_err() {
                 println!("[DISPENCER] Failed to submit chunks to provider {}: {:?}", provider_id, result.err());
                 continue;
@@ -49,9 +50,9 @@ impl<T: PodaClientTrait> Dispenser<T> {
             return Err(anyhow::anyhow!("Not enough chunks where promised to providers"));
         }
 
-        self.pod.wait_for_availability(commitment).await?;
+        self.pod.wait_for_availability(merkle_tree.root()).await?;
 
-        Ok(assignments)
+        Ok((merkle_tree.root(), assignments))
     }
 
     pub async fn retrieve_data(&self, namespace: String, commitment: FixedBytes<32>) -> Result<Vec<u8>> {
@@ -179,13 +180,14 @@ impl<T: PodaClientTrait> Dispenser<T> {
         Ok(message.chunks)
     }
 
-    pub async fn batch_submit_to_provider(&self, chunks: Vec<Chunk>, namespace: String, commitment: FixedBytes<32>, storage_provider: &ProviderInfo, proof: KzgProof) -> Result<()> {
+    pub async fn batch_submit_to_provider(&self, chunks: Vec<Chunk>, namespace: String, commitment: FixedBytes<32>, storage_provider: &ProviderInfo, proof: KzgProof, merkle_proofs: Vec<MerkleProof>) -> Result<()> {
         let url = format!("{}/batch-store", storage_provider.url);
         let body = BatchStoreRequest {
             commitment,
             namespace,
             chunks,
             kzg_proof: proof,
+            merkle_proofs,
         };
 
         let response = reqwest::Client::new().post(url).json(&body).send().await?;

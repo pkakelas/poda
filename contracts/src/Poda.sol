@@ -322,19 +322,20 @@ contract Poda {
     function respondToChunkChallenge(
         bytes32 commitment,
         uint16 chunkId,
-        bytes32 proof
+        bytes calldata chunkData,
+        bytes32[] calldata proof
     ) external onlyRegisteredProvider {
         bytes32 challengeId = activeChunkChallenges[commitment][chunkId][msg.sender];
         require(challengeId != bytes32(0), "No active challenge");
-        require(proof != bytes32(0), "Invalid proof");
+        require(proof.length > 0, "Invalid proof");
 
-        // if (verifyProof(msg.sender, commitment, chunkId, proof)) {
-        //     providers[msg.sender].challengeSuccessCount++;
-        //     return;
-        // }
+        if (verifyChunkProof(proof, commitment, chunkId, chunkData)) {
+            providers[msg.sender].challengeSuccessCount++;
+        }
+        else {
+            slashProviderChunk(commitment, chunkId, msg.sender);
+        }
 
-
-        slashProviderChunk(commitment, chunkId, msg.sender);
         activeChunkChallenges[commitment][chunkId][msg.sender] = bytes32(0);
     }
     
@@ -370,9 +371,6 @@ contract Poda {
         chunkAvailability[commitment][wordIndex] &= ~(1 << bitIndex);
         
         providers[provider].stakedAmount -= CHALLENGE_PENALTY;
-        
-        // Clear challenge
-        activeChunkChallenges[commitment][chunkId][provider] = bytes32(0);
     }
 
     // =============================================================================
@@ -392,16 +390,5 @@ contract Poda {
         redundancyRatio = (comm.totalChunks * 10000) / comm.requiredChunks;
         
         return (originalSize, totalStoredSize, redundancyRatio);
-    }
-    
-    function getNetworkStorageStats() external pure returns (
-        uint256 totalCommitments,
-        uint256 totalOriginalData,
-        uint256 totalStoredData,
-        uint256 averageEfficiency
-    ) {
-        // Implementation would track global stats
-        // Simplified for example
-        return (0, 0, 0, 0);
     }
 }

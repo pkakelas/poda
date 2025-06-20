@@ -3,13 +3,21 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use crate::storage::ChunkStorage;
 use anyhow::Result;
+use merkle_tree::MerkleProof;
 use pod::FixedBytes;
+use serde::{Deserialize, Serialize};
 use serde_json;
 use async_trait::async_trait;
 use types::Chunk;
 
 pub struct FileStorage {
     base_path: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChunkWithProof {
+    pub chunk: Chunk,
+    pub merkle_proof: MerkleProof,
 }
 
 impl FileStorage {
@@ -33,21 +41,22 @@ impl FileStorage {
 
 #[async_trait]
 impl ChunkStorage for FileStorage {
-    async fn store(&self, namespace: String, commitment: FixedBytes<32>, chunk: &Chunk) -> Result<()> {
+    async fn store(&self, namespace: String, commitment: FixedBytes<32>, chunk: &Chunk, merkle_proof: &MerkleProof) -> Result<()> {
         self.ensure_dir_exists()?;
 
         // Store the chunk data
         let chunk_path = self.chunk_path(namespace, commitment, chunk.index);
         let mut file = File::create(&chunk_path)?;
 
-        let serialized_chunk = serde_json::to_vec(&chunk)?;
+        let chunk_with_proof = ChunkWithProof { chunk: chunk.clone(), merkle_proof: merkle_proof.clone() };
+        let serialized_chunk = serde_json::to_vec(&chunk_with_proof)?;
 
         file.write_all(&serialized_chunk)?;
 
         Ok(())
     }
 
-    async fn retrieve(&self, namespace: String, commitment: FixedBytes<32>, index: u16) -> Result<Option<Chunk>> {
+    async fn retrieve(&self, namespace: String, commitment: FixedBytes<32>, index: u16) -> Result<Option<(Chunk, MerkleProof)>> {
         let chunk_path = self.chunk_path(namespace, commitment, index);
 
         if !chunk_path.exists() {
@@ -59,9 +68,12 @@ impl ChunkStorage for FileStorage {
         let mut file = File::open(&chunk_path)?;
         file.read_to_end(&mut data)?;
 
-        let deserialized_chunk: Chunk = serde_json::from_slice(&data)?;
+        let deserialized_chunk: ChunkWithProof = serde_json::from_slice(&data)?;
+        if deserialized_chunk.chunk.index != index {
+            return Err(anyhow::anyhow!("Chunk index mismatch"));
+        }
 
-        Ok(Some(deserialized_chunk))
+        Ok(Some((deserialized_chunk.chunk.clone(), deserialized_chunk.merkle_proof.clone())))
     }
 
     async fn exists(&self, namespace: String, commitment: FixedBytes<32>, index: u16) -> Result<bool> {
@@ -137,27 +149,33 @@ mod tests {
     async fn test_store_and_retrieve() {
         let (storage, _temp_dir, namespace, commitment) = setup().await;
         let chunk = create_test_chunk(1);
+        let merkle_proof = MerkleProof {
+            path: vec![],
+        };
 
         // Test store
-        storage.store(namespace.clone(), commitment, &chunk).await.unwrap();
+        storage.store(namespace.clone(), commitment, &chunk, &merkle_proof).await.unwrap();
 
         // Test retrieve
-        let retrieved = storage.retrieve(namespace, commitment, 1).await.unwrap().unwrap();
-        assert_eq!(retrieved.data, chunk.data);
-        assert_eq!(retrieved.index, chunk.index);
-        assert_eq!(retrieved.hash(), chunk.hash());
+        let (retrieved_chunk, _) = storage.retrieve(namespace, commitment, 1).await.unwrap().unwrap();
+        assert_eq!(retrieved_chunk.data, chunk.data);
+        assert_eq!(retrieved_chunk.index, chunk.index);
+        assert_eq!(retrieved_chunk.hash(), chunk.hash());
     }
 
     #[tokio::test]
     async fn test_exists() {
         let (storage, _temp_dir, namespace, commitment) = setup().await;
         let chunk = create_test_chunk(1);
+        let merkle_proof = MerkleProof {
+            path: vec![],
+        };
 
         // Initially should not exist
         assert!(!storage.exists(namespace.clone(), commitment, 1).await.unwrap());
 
         // Store the chunk
-        storage.store(namespace.clone(), commitment, &chunk).await.unwrap();
+        storage.store(namespace.clone(), commitment, &chunk, &merkle_proof).await.unwrap();
 
         // Should exist after storing
         assert!(storage.exists(namespace, commitment, 1).await.unwrap());
@@ -167,9 +185,12 @@ mod tests {
     async fn test_delete() {
         let (storage, _temp_dir, namespace, commitment) = setup().await;
         let chunk = create_test_chunk(1);
+        let merkle_proof = MerkleProof {
+            path: vec![],
+        };
 
         // Store the chunk
-        storage.store(namespace.clone(), commitment, &chunk).await.unwrap();
+        storage.store(namespace.clone(), commitment, &chunk, &merkle_proof).await.unwrap();
         assert!(storage.exists(namespace.clone(), commitment, 1).await.unwrap());
 
         // Delete the chunk
@@ -183,11 +204,14 @@ mod tests {
     #[tokio::test]
     async fn test_list_chunks() {
         let (storage, _temp_dir, namespace, commitment) = setup().await;
+        let merkle_proof = MerkleProof {
+            path: vec![],
+        };
 
         // Store multiple chunks
         for i in 1..=5 {
             let chunk = create_test_chunk(i);
-            storage.store(namespace.clone(), commitment, &chunk).await.unwrap();
+            storage.store(namespace.clone(), commitment, &chunk, &merkle_proof).await.unwrap();
         }
 
         // Test listing chunks
@@ -207,9 +231,12 @@ mod tests {
     async fn test_corrupted_chunk() {
         let (storage, _temp_dir, namespace, commitment) = setup().await;
         let chunk = create_test_chunk(1);
+        let merkle_proof = MerkleProof {
+            path: vec![],
+        };
 
         // Store valid data
-        storage.store(namespace.clone(), commitment, &chunk).await.unwrap();
+        storage.store(namespace.clone(), commitment, &chunk, &merkle_proof).await.unwrap();
 
         // Corrupt the chunk file by writing invalid JSON
         let chunk_path = storage.chunk_path(namespace.clone(), commitment, 1);

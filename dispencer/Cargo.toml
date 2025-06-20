@@ -17,6 +17,7 @@ kzg = { path = "../kzg" }
 types = { path = "../types" }
 warp = "0.3.7"
 dotenv = "0.15.0"
+merkle_tree = { version = "0.1.0", path = "../merkle_tree" }
 
 [dev-dependencies]
 mockall = "0.13.1"

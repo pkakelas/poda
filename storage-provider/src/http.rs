@@ -2,10 +2,11 @@ use std::convert::Infallible;
 use std::sync::Arc;
 use alloy::primitives::FixedBytes;
 use kzg::{kzg_multi_verify, kzg_verify};
+use merkle_tree::MerkleProof;
 use warp::Filter;
 use serde::{Deserialize, Serialize};
 use pod::client::{PodaClient, PodaClientTrait};
-use crate::storage::ChunkStorage;
+use crate::storage::{ChunkStorage};
 use kzg::types::KzgProof;
 use types::Chunk;
 use hex;
@@ -16,6 +17,7 @@ struct StoreRequest {
     namespace: String,
     chunk: Chunk,
     kzg_proof: KzgProof,
+    merkle_proof: MerkleProof,
 }
 
 #[derive(Debug, Serialize)]
@@ -35,6 +37,7 @@ pub struct BatchStoreRequest {
     pub namespace: String,
     pub chunks: Vec<Chunk>,
     pub kzg_proof: KzgProof,
+    pub merkle_proofs: Vec<MerkleProof>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -47,6 +50,7 @@ pub struct BatchRetrieveRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BatchRetrieveResponse {
     pub chunks: Vec<Option<Chunk>>,
+    pub proofs: Vec<Option<MerkleProof>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -174,6 +178,18 @@ async fn handle_store<T: ChunkStorage>(
         ));
     }
 
+    let is_valid = merkle_tree::verify_proof(request.commitment, &request.chunk, request.merkle_proof.clone());
+    println!("[STORAGE_PROVIDER] Merkle proof verification result for chunk {:?}: {:?}", request.chunk.index, is_valid);
+    if !is_valid {
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&StoreResponse {
+                success: false,
+                message: "Merkle proof verification failed".to_string(),
+            }),
+            warp::http::StatusCode::BAD_REQUEST,
+        ));
+    }
+
     let (commitment_info, _) = commitment.unwrap();
     let is_valid = kzg_verify(&request.chunk, request.chunk.index as usize, commitment_info.kzgCommitment.try_into().unwrap(), request.kzg_proof);
     if !is_valid {
@@ -186,7 +202,7 @@ async fn handle_store<T: ChunkStorage>(
         ));
     }
 
-    match storage.store(request.namespace, request.commitment, &request.chunk).await {
+    match storage.store(request.namespace, request.commitment, &request.chunk, &request.merkle_proof).await {
         Ok(_) => {
             println!("Chunk stored successfully");
 
@@ -198,16 +214,6 @@ async fn handle_store<T: ChunkStorage>(
                         message: format!("Failed to submit chunk attestation: {:?}", res.err()),
                     }),
                     warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-                ));
-            }
-
-            if !is_valid {
-                return Ok(warp::reply::with_status(
-                    warp::reply::json(&StoreResponse {
-                        success: false,
-                        message: "KZG proof verification failed".to_string(),
-                    }),
-                    warp::http::StatusCode::INTERNAL_SERVER_ERROR,  
                 ));
             }
 
@@ -240,20 +246,24 @@ async fn handle_batch_retrieve<T: ChunkStorage>(
 ) -> Result<impl warp::Reply, Infallible> {
     println!("Retrieving chunks: {:?}", request);
     let mut chunks = Vec::new();
+    let mut proofs = Vec::new();
     let mut errors = Vec::new();
 
     for index in &request.indices {
         match storage.retrieve(request.namespace.clone(), request.commitment, *index).await {
-            Ok(Some(chunk)) => {
+            Ok(Some((chunk, merkle_proof))) => {
                 chunks.push(Some(chunk));
+                proofs.push(Some(merkle_proof));
             }
             Ok(None) => {
                 errors.push(format!("Chunk not found at index: {}", index));
                 chunks.push(None);
+                proofs.push(None);
             }
             Err(_) => {
                 errors.push(format!("Failed to retrieve chunk at index: {}", index));
                 chunks.push(None);
+                proofs.push(None);
             }
         }
     }
@@ -267,7 +277,7 @@ async fn handle_batch_retrieve<T: ChunkStorage>(
     }
 
     Ok(warp::reply::with_status(
-        warp::reply::json(&BatchRetrieveResponse { chunks: chunks }),
+        warp::reply::json(&BatchRetrieveResponse { chunks: chunks, proofs: proofs }),
         warp::http::StatusCode::OK,
     ))
 }
@@ -406,6 +416,16 @@ async fn handle_batch_store<T: ChunkStorage>(
     storage: Arc<T>,
     pod: Arc<PodaClient>,
 ) -> Result<impl warp::Reply, Infallible> {
+    if request.merkle_proofs.len() != request.chunks.len() {
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&StoreResponse {
+                success: false,
+                message: "Merkle proofs length does not match chunks length".to_string(),
+            }),
+            warp::http::StatusCode::BAD_REQUEST,
+        ));
+    }
+
     let commitment = pod.get_commitment_info(request.commitment).await;
     if commitment.is_err() {
         let err = commitment.err();
@@ -418,6 +438,20 @@ async fn handle_batch_store<T: ChunkStorage>(
             }),
             warp::http::StatusCode::INTERNAL_SERVER_ERROR,
         ));
+    }
+
+    for (chunk, merkle_proof) in request.chunks.iter().zip(request.merkle_proofs.iter()) {
+        let is_valid = merkle_tree::verify_proof(request.commitment, &chunk, merkle_proof.clone());
+        println!("[STORAGE_PROVIDER] Merkle proof verification result for chunk {:?}: {:?}", chunk.index, is_valid);
+        if !is_valid {
+            return Ok(warp::reply::with_status(
+                warp::reply::json(&StoreResponse {
+                    success: false,
+                    message: format!("Merkle proof verification failed for chunk: {:?}", chunk.index),
+                }),
+                warp::http::StatusCode::BAD_REQUEST,
+            ));
+        }
     }
 
     let (commitment_info, _) = commitment.unwrap();
@@ -437,8 +471,8 @@ async fn handle_batch_store<T: ChunkStorage>(
         ));
     }
 
-    for chunk in &request.chunks {
-        match storage.store(request.namespace.clone(), request.commitment, &chunk).await {
+    for (chunk, merkle_proof) in request.chunks.iter().zip(request.merkle_proofs.iter()) {
+        match storage.store(request.namespace.clone(), request.commitment, &chunk, &merkle_proof).await {
             Ok(_) => {
             }
             Err(e) => {

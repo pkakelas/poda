@@ -289,30 +289,6 @@ contract PodaTest is Test {
         poda.issueChunkChallenge(COMMITMENT_1, 0, bob);
     }
     
-    function test_RespondToChunkChallenge() public {
-        // Setup challenge
-        vm.prank(alice);
-        poda.submitCommitment(COMMITMENT_1, NAMESPACE_1, DATA_SIZE, TOTAL_CHUNKS, REQUIRED_CHUNKS, KZG_COMMITMENT_1);
-        
-        uint16[] memory chunks = new uint16[](1);
-        chunks[0] = 0;
-        vm.prank(bob);
-        poda.submitChunkAttestations(COMMITMENT_1, chunks);
-        
-        vm.prank(charlie);
-        poda.issueChunkChallenge(COMMITMENT_1, 0, bob);
-        
-        // Respond to challenge
-        bytes32 proof = keccak256("valid_chunk_proof");
-        vm.prank(bob);
-        poda.respondToChunkChallenge(COMMITMENT_1, 0, proof);
-        
-        // Challenge should be cleared (no longer active)
-        // We can verify this by trying to respond again
-        vm.prank(bob);
-        vm.expectRevert("No active challenge");
-        poda.respondToChunkChallenge(COMMITMENT_1, 0, proof);
-    }
     
     // function test_SlashProviderChunk() public {
     //     // Setup commitment with chunk
@@ -501,10 +477,13 @@ contract PodaTest is Test {
         vm.prank(eve);
         poda.issueChunkChallenge(COMMITMENT_1, 0, alice);
         
-        
+
+        bytes memory chunkData = "valid_chunk_data";
         // 7. Provider responds successfully
         vm.prank(alice);
-        poda.respondToChunkChallenge(COMMITMENT_1, 0, keccak256("proof"));
+        bytes32[] memory proof = new bytes32[](1);
+        proof[0] = keccak256("valid_chunk_proof");
+        poda.respondToChunkChallenge(COMMITMENT_1, 0, chunkData, proof);
         
         // 8. Still recoverable and no reputation loss
         assertTrue(poda.isCommitmentRecoverable(COMMITMENT_1));

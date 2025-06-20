@@ -101,15 +101,14 @@ mod tests {
 
         let namespace = "test_namespace";
         let data = b"hello, world".repeat(10);
-        let commitment = FixedBytes::from_slice(&Keccak256::digest(&data));
 
         let assignments = submit_data(&dispencer_handle.base_url, namespace, &data).await.unwrap();
         if !assignments.status().is_success() {
             panic!("Failed to submit data: {}", assignments.text().await.unwrap());
         }
-        let assignments: SubmitDataResponse = assignments.json().await.unwrap();
+        let result: SubmitDataResponse = assignments.json().await.unwrap();
 
-        let (commitment_info, is_recoverable) = poda_client.get_commitment_info(commitment).await.unwrap();
+        let (commitment_info, is_recoverable) = poda_client.get_commitment_info(result.commitment).await.unwrap();
         assert_eq!(commitment_info.availableChunks, TOTAL_SHARDS as u16);
         assert_eq!(commitment_info.totalChunks, TOTAL_SHARDS as u16);
         assert_eq!(commitment_info.requiredChunks, REQUIRED_SHARDS as u16);
@@ -118,8 +117,8 @@ mod tests {
 
         let providers = poda_client.get_eligible_providers().await.unwrap();
         for provider in providers {
-            let provider_chunks = poda_client.get_provider_chunks(commitment, provider.addr).await.unwrap();
-            let assignment = assignments.assignments.get(&provider.name).unwrap();
+            let provider_chunks = poda_client.get_provider_chunks(result.commitment, provider.addr).await.unwrap();
+            let assignment = result.assignments.get(&provider.name).unwrap();
 
 
             for chunk in assignment {
@@ -135,11 +134,14 @@ mod tests {
 
         let namespace = "test_namespace";
         let data = b"hello, world".repeat(10);
-        let commitment = FixedBytes::from_slice(&Keccak256::digest(&data));
 
-        let _ = submit_data(&dispencer_handle.base_url, namespace, &data).await.unwrap();
+        let response = submit_data(&dispencer_handle.base_url, namespace, &data).await.unwrap();
+        if !response.status().is_success() {
+            panic!("Failed to submit data: {}", response.text().await.unwrap());
+        }
+        let result: SubmitDataResponse = response.json().await.unwrap();
 
-        let retrieve_data = retrieve_data(&dispencer_handle.base_url, namespace, &commitment).await.unwrap();
+        let retrieve_data = retrieve_data(&dispencer_handle.base_url, namespace, &result.commitment).await.unwrap();
 
         assert_eq!(retrieve_data, data);
     }
@@ -153,22 +155,21 @@ mod tests {
 
         let namespace = "test_namespace";
         let data = b"hello, world".repeat(10);
-        let commitment = FixedBytes::from_slice(&Keccak256::digest(&data));
 
         let response = submit_data(&dispencer_handle.base_url, namespace, &data).await.unwrap();
         if !response.status().is_success() {
             panic!("Failed to submit data: {}", response.text().await.unwrap());
         }
-        let assignments: SubmitDataResponse = response.json().await.unwrap();
+        let result: SubmitDataResponse = response.json().await.unwrap();
 
         let providers = poda_client.get_providers().await.unwrap();
-        for (provider_name, chunks) in assignments.assignments.iter() {
+        for (provider_name, chunks) in result.assignments.iter() {
             let provider = providers.iter().find(|p| p.name == *provider_name).unwrap();
             let chunk_index = chunks.first().unwrap();
-            delete_provider_chunk(provider.url.as_str(), namespace, &commitment, &vec![*chunk_index]).await.unwrap();
+            delete_provider_chunk(provider.url.as_str(), namespace, &result.commitment, &vec![*chunk_index]).await.unwrap();
         }
 
-        let retrieve_data = retrieve_data(&dispencer_handle.base_url, namespace, &commitment).await.unwrap();
+        let retrieve_data = retrieve_data(&dispencer_handle.base_url, namespace, &result.commitment).await.unwrap();
 
         assert_eq!(retrieve_data, data);
     }
@@ -182,27 +183,26 @@ mod tests {
 
         let namespace = "test_namespace";
         let data = b"hello, world".repeat(10);
-        let commitment = FixedBytes::from_slice(&Keccak256::digest(&data));
 
         let response = submit_data(&dispencer_handle.base_url, namespace, &data).await.unwrap();
         if !response.status().is_success() {
             panic!("Failed to submit data: {}", response.text().await.unwrap());
         }
-        let assignments: SubmitDataResponse = response.json().await.unwrap();
+        let result: SubmitDataResponse = response.json().await.unwrap();
 
         let providers = poda_client.get_providers().await.unwrap();
         let mut to_delete: usize = 9;
-        for (provider_name, chunks) in assignments.assignments.iter() {
+        for (provider_name, chunks) in result.assignments.iter() {
             let provider = providers.iter().find(|p| p.name == *provider_name).unwrap();
             let to_delete_chunks = chunks.iter().take(to_delete).map(|c| *c).collect::<Vec<_>>();
-            delete_provider_chunk(provider.url.as_str(), namespace, &commitment, &to_delete_chunks).await.unwrap();
+            delete_provider_chunk(provider.url.as_str(), namespace, &result.commitment, &to_delete_chunks).await.unwrap();
             to_delete -= to_delete_chunks.len();
             if to_delete == 0 {
                 break;
             }
         }
 
-        let retrieve_data = retrieve_data(&dispencer_handle.base_url, namespace, &commitment).await;
+        let retrieve_data = retrieve_data(&dispencer_handle.base_url, namespace, &result.commitment).await;
 
         match retrieve_data {
             Ok(data) => panic!("Retrieved data: {:?}", data),
@@ -218,23 +218,22 @@ mod tests {
 
         let namespace = "test_namespace";
         let data = b"hello, world".repeat(10);
-        let commitment: FixedBytes<32> = FixedBytes::from_slice(&Keccak256::digest(&data));
-
+        let chunks = dispencer.erasure_encode(&data, REQUIRED_SHARDS, TOTAL_SHARDS);
+        let merkle_tree = merkle_tree::gen_merkle_tree(&chunks);
 
         let mut rng = ark_std::test_rng();
         let invalid_g1_point = G1::rand(&mut rng);
         let invalid_kzg_commitment = KzgCommitment::new(invalid_g1_point);
         
-        dispencer_client.submit_commitment(commitment, namespace.to_string(), data.len() as u32, TOTAL_SHARDS as u16, REQUIRED_SHARDS as u16, invalid_kzg_commitment.try_into().unwrap()).await.unwrap();
-
-        let chunks = dispencer.erasure_encode(&data, REQUIRED_SHARDS, TOTAL_SHARDS);
+        dispencer_client.submit_commitment(merkle_tree.root(), namespace.to_string(), data.len() as u32, TOTAL_SHARDS as u16, REQUIRED_SHARDS as u16, invalid_kzg_commitment.try_into().unwrap()).await.unwrap();
         let providers = dispencer_client.get_providers().await.unwrap();
 
         let mut rng = ark_std::test_rng();
         let another_invalid_g1_point = G1::rand(&mut rng);
         let proof = KzgProof::new(another_invalid_g1_point);
+        let merkle_proofs = chunks.iter().map(|c| merkle_tree::gen_proof(&merkle_tree, c.clone()).unwrap()).collect::<Vec<_>>();
 
-        let result = dispencer.batch_submit_to_provider(chunks, namespace.to_string(), commitment, &providers[0], proof).await;
+        let result = dispencer.batch_submit_to_provider(chunks, namespace.to_string(), merkle_tree.root(), &providers[0], proof, merkle_proofs).await;
         if result.is_ok() {
             panic!("Should have failed to submit chunks");
         }
