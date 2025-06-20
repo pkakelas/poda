@@ -129,7 +129,6 @@ mod tests {
         Chunk {
             index,
             data: b"Hello, World!".to_vec(),
-            hash: FixedBytes::from_slice(&Keccak256::digest(b"chunk-data")),
         }
     }
 
@@ -146,7 +145,7 @@ mod tests {
         let retrieved = storage.retrieve(namespace, commitment, 1).await.unwrap().unwrap();
         assert_eq!(retrieved.data, chunk.data);
         assert_eq!(retrieved.index, chunk.index);
-        assert_eq!(retrieved.hash, chunk.hash);
+        assert_eq!(retrieved.hash(), chunk.hash());
     }
 
     #[tokio::test]

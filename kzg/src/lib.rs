@@ -93,7 +93,7 @@ pub fn kzg_verify(chunk: &Chunk, chunk_index: usize, commitment: KzgCommitment, 
 fn chunk_to_field_elements(chunk: &Chunk) -> Vec<Fr> {
     // Use the first 4 bytes of the hash to create exactly one field element per chunk
     let mut combined: u32 = 0;
-    for (i, &byte) in chunk.hash.as_slice().iter().take(4).enumerate() {
+    for (i, &byte) in chunk.hash().as_slice().iter().take(4).enumerate() {
         combined |= (byte as u32) << (8 * i);
     }
     vec![Fr::from(combined)]
@@ -146,7 +146,6 @@ mod tests {
             chunks.push(Chunk {
                 index: i,
                 data: data.clone(),
-                hash: FixedBytes::from_slice(&Keccak256::digest(&data)),
             });
         }
 
@@ -247,7 +246,6 @@ mod tests {
             chunks.push(Chunk {
                 index: i as u16,
                 data: data.clone(),
-                hash: FixedBytes::from_slice(&Keccak256::digest(&data)),
             });
         }
 

@@ -115,7 +115,6 @@ impl<T: PodaClientTrait> Dispenser<T> {
         let chunks = master_copy.iter().enumerate().map(|(index, shard)| Chunk {
             index: index as u16,
             data: shard.to_vec(),
-            hash: FixedBytes::from_slice(&Keccak256::digest(shard)),
         }).collect::<Vec<_>>();
 
         if chunks.len() != total_shards {
@@ -147,7 +146,6 @@ impl<T: PodaClientTrait> Dispenser<T> {
                 let chunk = Chunk {
                     index: i as u16,
                     data: data.clone(),
-                    hash: FixedBytes::from_slice(&Keccak256::digest(data)),
                 };
 
                 reconstructed_chunks.push(chunk);
@@ -213,7 +211,7 @@ impl<T: PodaClientTrait> Dispenser<T> {
         // Assign each chunk individually using deterministic round-robin
         for chunk in chunks {
             let provider = self.select_provider_for_chunk(
-                &chunk.hash, 
+                &chunk.hash(), 
                 chunk.index, 
                 &providers,
                 total_stake
@@ -361,7 +359,7 @@ mod tests {
         // Verify each reconstructed chunk has the correct index and hash
         for (i, chunk) in reconstructed_chunks.iter().enumerate() {
             assert_eq!(chunk.index, i as u16);
-            assert_eq!(chunk.hash, FixedBytes::from_slice(&Keccak256::digest(&chunk.data)));
+            assert_eq!(chunk.hash(), FixedBytes::from_slice(&Keccak256::digest(&chunk.data)));
         }
 
         // Test encoding again for the missing chunks test
@@ -385,7 +383,7 @@ mod tests {
         // Verify reconstructed chunks after missing data
         for (i, chunk) in reconstructed_chunks.iter().enumerate() {
             assert_eq!(chunk.index, i as u16);
-            assert_eq!(chunk.hash, FixedBytes::from_slice(&Keccak256::digest(&chunk.data)));
+            assert_eq!(chunk.hash(), FixedBytes::from_slice(&Keccak256::digest(&chunk.data)));
         }
     }
 
