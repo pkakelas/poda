@@ -6,7 +6,7 @@ use merkle_tree::MerkleProof;
 use warp::Filter;
 use serde::{Deserialize, Serialize};
 use pod::client::{PodaClient, PodaClientTrait};
-use crate::storage::{ChunkStorage};
+use crate::storage::ChunkStorageTrait;
 use kzg::types::KzgProof;
 use types::Chunk;
 use hex;
@@ -14,7 +14,6 @@ use hex;
 #[derive(Debug, Deserialize)]
 struct StoreRequest {
     commitment: FixedBytes<32>,
-    namespace: String,
     chunk: Chunk,
     kzg_proof: KzgProof,
     merkle_proof: MerkleProof,
@@ -34,7 +33,6 @@ struct StatusResponse {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct BatchStoreRequest {
     pub commitment: FixedBytes<32>,
-    pub namespace: String,
     pub chunks: Vec<Chunk>,
     pub kzg_proof: KzgProof,
     pub merkle_proofs: Vec<MerkleProof>,
@@ -42,7 +40,6 @@ pub struct BatchStoreRequest {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BatchRetrieveRequest {
-    pub namespace: String,
     pub commitment: FixedBytes<32>,
     pub indices: Vec<u16>,
 }
@@ -55,14 +52,12 @@ pub struct BatchRetrieveResponse {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BatchDeleteRequest {
-    pub namespace: String,
     pub commitment: FixedBytes<32>,
     pub indices: Vec<u16>,
 }
 
 #[derive(Debug, Deserialize)]
 struct ListQuery {
-    namespace: String,
     commitment: String,
 }
 
@@ -72,7 +67,7 @@ struct ListResponse {
 }
 
 
-pub async fn start_server<T: ChunkStorage + Send + Sync + 'static>(
+pub async fn start_server<T: ChunkStorageTrait + Send + Sync + 'static>(
     storage: Arc<T>,
     pod: Arc<PodaClient>,
     port: u16,
@@ -162,7 +157,7 @@ async fn handle_health_check() -> Result<impl warp::Reply, Infallible> {
     ))
 }
 
-async fn handle_store<T: ChunkStorage>(
+async fn handle_store<T: ChunkStorageTrait>(
     request: StoreRequest,
     storage: Arc<T>,
     pod: Arc<PodaClient>,
@@ -202,7 +197,7 @@ async fn handle_store<T: ChunkStorage>(
         ));
     }
 
-    match storage.store(request.namespace, request.commitment, &request.chunk, &request.merkle_proof).await {
+    match storage.store(request.commitment, &request.chunk, &request.merkle_proof).await {
         Ok(_) => {
             println!("Chunk stored successfully");
 
@@ -239,7 +234,7 @@ async fn handle_store<T: ChunkStorage>(
     }
 }
 
-async fn handle_batch_retrieve<T: ChunkStorage>(
+async fn handle_batch_retrieve<T: ChunkStorageTrait>(
     request: BatchRetrieveRequest,
     storage: Arc<T>,
     _: Arc<PodaClient>,
@@ -250,7 +245,7 @@ async fn handle_batch_retrieve<T: ChunkStorage>(
     let mut errors = Vec::new();
 
     for index in &request.indices {
-        match storage.retrieve(request.namespace.clone(), request.commitment, *index).await {
+        match storage.retrieve(request.commitment, *index).await {
             Ok(Some((chunk, merkle_proof))) => {
                 chunks.push(Some(chunk));
                 proofs.push(Some(merkle_proof));
@@ -282,7 +277,7 @@ async fn handle_batch_retrieve<T: ChunkStorage>(
     ))
 }
 
-async fn handle_retrieve<T: ChunkStorage>(
+async fn handle_retrieve<T: ChunkStorageTrait>(
     chunk_id: String,
     storage: Arc<T>,
     _: Arc<PodaClient>,
@@ -297,7 +292,6 @@ async fn handle_retrieve<T: ChunkStorage>(
         ));
     }
 
-    let namespace = parts[0].to_string();
     let commitment_hex = parts[1];
     let index_str = parts[2];
 
@@ -321,7 +315,7 @@ async fn handle_retrieve<T: ChunkStorage>(
         }
     };
 
-    match storage.retrieve(namespace, commitment, index).await {
+    match storage.retrieve(commitment, index).await {
         Ok(Some(chunk)) => {
             Ok(warp::reply::with_status(
                 warp::reply::json(&Some(chunk)),
@@ -339,7 +333,7 @@ async fn handle_retrieve<T: ChunkStorage>(
     }
 }
 
-async fn handle_status<T: ChunkStorage>(
+async fn handle_status<T: ChunkStorageTrait>(
     chunk_id: String,
     storage: Arc<T>,
     _: Arc<PodaClient>,
@@ -353,7 +347,6 @@ async fn handle_status<T: ChunkStorage>(
         ));
     }
 
-    let namespace = parts[0].to_string();
     let commitment_hex = parts[1];
     let index_str = parts[2];
 
@@ -377,7 +370,7 @@ async fn handle_status<T: ChunkStorage>(
         }
     };
 
-    match storage.exists(namespace, commitment, index).await {
+    match storage.exists(commitment, index).await {
         Ok(exists) => {
             Ok(warp::reply::with_status(
                 warp::reply::json(&StatusResponse { exists }),
@@ -391,13 +384,13 @@ async fn handle_status<T: ChunkStorage>(
     }
 }
 
-async fn handle_batch_delete<T: ChunkStorage>(
+async fn handle_batch_delete<T: ChunkStorageTrait>(
     request: BatchDeleteRequest,
     storage: Arc<T>,
     _: Arc<PodaClient>,
 ) -> Result<impl warp::Reply, Infallible> {
     for index in request.indices {
-        match storage.delete(request.namespace.clone(), request.commitment, index).await {
+        match storage.delete(request.commitment, index).await {
             Ok(_) => {},
             Err(_) => {
                 return Ok(warp::reply::with_status(
@@ -411,7 +404,7 @@ async fn handle_batch_delete<T: ChunkStorage>(
     Ok(warp::reply::with_status(warp::reply::json(&serde_json::json!({"success": true})), warp::http::StatusCode::OK))
 }
 
-async fn handle_batch_store<T: ChunkStorage>(
+async fn handle_batch_store<T: ChunkStorageTrait>(
     request: BatchStoreRequest,
     storage: Arc<T>,
     pod: Arc<PodaClient>,
@@ -472,7 +465,7 @@ async fn handle_batch_store<T: ChunkStorage>(
     }
 
     for (chunk, merkle_proof) in request.chunks.iter().zip(request.merkle_proofs.iter()) {
-        match storage.store(request.namespace.clone(), request.commitment, &chunk, &merkle_proof).await {
+        match storage.store(request.commitment, &chunk, &merkle_proof).await {
             Ok(_) => {
             }
             Err(e) => {
@@ -500,7 +493,7 @@ async fn handle_batch_store<T: ChunkStorage>(
     Ok(warp::reply::with_status(warp::reply::json(&serde_json::json!({"success": true})), warp::http::StatusCode::OK))
 }
 
-async fn handle_list<T: ChunkStorage>(
+async fn handle_list<T: ChunkStorageTrait>(
     query: ListQuery,
     storage: Arc<T>,
     _: Arc<PodaClient>,
@@ -516,7 +509,7 @@ async fn handle_list<T: ChunkStorage>(
         }
     };
 
-    match storage.list_chunks(query.namespace, commitment).await {
+    match storage.list_chunks(commitment).await {
         Ok(indices) => Ok(warp::reply::with_status(
             warp::reply::json(&ListResponse { indices }),
             warp::http::StatusCode::OK,

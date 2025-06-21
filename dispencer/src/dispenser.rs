@@ -20,13 +20,13 @@ impl<T: PodaClientTrait> Dispenser<T> {
         Self { pod }
     }
 
-    pub async fn submit_data(&self, namespace: String, data: &[u8]) -> Result<(FixedBytes<32>, ChunkAssignment)> {
+    pub async fn submit_data(&self, data: &[u8]) -> Result<(FixedBytes<32>, ChunkAssignment)> {
         let storage_providers = self.pod.get_providers().await?.iter().map(|p| p.clone()).collect::<Vec<_>>();
         let chunks = self.erasure_encode(data, REQUIRED_SHARDS, TOTAL_SHARDS);
         let merkle_tree = gen_merkle_tree(&chunks);
 
         let (kzg_commitment, _) = kzg_commit(&chunks);
-        self.pod.submit_commitment(merkle_tree.root(), namespace.clone(), data.len() as u32, TOTAL_SHARDS as u16, REQUIRED_SHARDS as u16, kzg_commitment.try_into().unwrap()).await?;
+        self.pod.submit_commitment(merkle_tree.root(), data.len() as u32, TOTAL_SHARDS as u16, REQUIRED_SHARDS as u16, kzg_commitment.try_into().unwrap()).await?;
 
         let assignments = self.assign_chunks(&chunks, &storage_providers)?;
 
@@ -38,7 +38,7 @@ impl<T: PodaClientTrait> Dispenser<T> {
             let merkle_proofs = provider_chunks.iter().map(|c| merkle_tree::gen_proof(&merkle_tree, c.clone()).unwrap()).collect::<Vec<_>>();
 
             let provider = storage_providers.iter().find(|p| p.name == *provider_id).unwrap();
-            let result = self.batch_submit_to_provider(provider_chunks.clone(), namespace.clone(), merkle_tree.root(), provider, kzg_proof, merkle_proofs).await;
+            let result = self.batch_submit_to_provider(provider_chunks.clone(), merkle_tree.root(), provider, kzg_proof, merkle_proofs).await;
             if result.is_err() {
                 println!("[DISPENCER] Failed to submit chunks to provider {}: {:?}", provider_id, result.err());
                 continue;
@@ -55,7 +55,7 @@ impl<T: PodaClientTrait> Dispenser<T> {
         Ok((merkle_tree.root(), assignments))
     }
 
-    pub async fn retrieve_data(&self, namespace: String, commitment: FixedBytes<32>) -> Result<Vec<u8>> {
+    pub async fn retrieve_data(&self, commitment: FixedBytes<32>) -> Result<Vec<u8>> {
         let (commitment_info, is_recoverable) = self.pod.get_commitment_info(commitment).await?;
         if !is_recoverable {
             return Err(anyhow::anyhow!("Commitment is not recoverable"));
@@ -68,7 +68,7 @@ impl<T: PodaClientTrait> Dispenser<T> {
         for provider in storage_providers {
             let chunk_ids = self.pod.get_provider_chunks(commitment, provider.addr).await?;
             println!("Chunk ids for provider {}: {:?}", provider.name, chunk_ids);
-            let provider_chunks = self.batch_retrieve_from_provider(namespace.clone(), commitment, &chunk_ids, &provider).await;
+            let provider_chunks = self.batch_retrieve_from_provider(commitment, &chunk_ids, &provider).await;
             if provider_chunks.is_err() {
                 println!("Failed to retrieve chunks from provider {}: {:?}", provider.name, provider_chunks.err());
                 for chunk_id in chunk_ids {
@@ -162,10 +162,9 @@ impl<T: PodaClientTrait> Dispenser<T> {
         Ok((decoded, reconstructed_chunks))
     }
 
-    async fn batch_retrieve_from_provider(&self, namespace: String, commitment: FixedBytes<32>, chunk_ids: &Vec<u16>, storage_provider: &ProviderInfo) -> Result<Vec<Option<Chunk>>> {
+    async fn batch_retrieve_from_provider(&self, commitment: FixedBytes<32>, chunk_ids: &Vec<u16>, storage_provider: &ProviderInfo) -> Result<Vec<Option<Chunk>>> {
         let url = format!("{}/batch-retrieve", storage_provider.url);
         let body = BatchRetrieveRequest {
-            namespace,
             commitment,
             indices: chunk_ids.clone(),
         };
@@ -180,11 +179,10 @@ impl<T: PodaClientTrait> Dispenser<T> {
         Ok(message.chunks)
     }
 
-    pub async fn batch_submit_to_provider(&self, chunks: Vec<Chunk>, namespace: String, commitment: FixedBytes<32>, storage_provider: &ProviderInfo, proof: KzgProof, merkle_proofs: Vec<MerkleProof>) -> Result<()> {
+    pub async fn batch_submit_to_provider(&self, chunks: Vec<Chunk>, commitment: FixedBytes<32>, storage_provider: &ProviderInfo, proof: KzgProof, merkle_proofs: Vec<MerkleProof>) -> Result<()> {
         let url = format!("{}/batch-store", storage_provider.url);
         let body = BatchStoreRequest {
             commitment,
-            namespace,
             chunks,
             kzg_proof: proof,
             merkle_proofs,

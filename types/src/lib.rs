@@ -10,6 +10,12 @@ pub struct Chunk {
     pub data: Vec<u8>,
 }
 
+impl Default for Chunk {
+    fn default() -> Self {
+        Self { index: 0, data: vec![] }
+    }
+}
+
 impl Chunk {
     pub fn hash(&self) -> FixedBytes<32> {
         let data = self.data.as_slice();

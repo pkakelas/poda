@@ -4,6 +4,10 @@
         "private_key": "0x261d08e6adc2f722855872297c4bf05839342d554a07c9c807ce6a9272fd7a65"
     },
     {
+        "address": "0xC44A3e14B0Ba6bA7f7C3D46D1AfDb3Ae6D4f6A87",
+        "private_key": "0x20251bf7898d9ca6c5ee6aedd89b66cf1145f945981fe5aee5646a54971e8dd5"
+    },
+    {
         "address": "0xfec3Af319104399FF144C94D3FFF0f12071eeD98",
         "private_key": "0x0591ff3da15ab810c578b52a254ea7b1a65e70b025207fd584b0408f2e56c732"
     },

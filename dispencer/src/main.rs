@@ -1,6 +1,6 @@
 mod dispenser;
 mod http;
-use std::str::FromStr;
+use std::{str::FromStr, sync::Arc};
 
 use http::start_server;
 use dispenser::Dispenser;
@@ -25,7 +25,7 @@ async fn main() {
     let signer = PrivateKeySigner::from_str(&private_key).unwrap();
     let poda_client = PodaClient::new(signer, rpc_url.clone(), poda_address).await;
 
-    let dispenser = Dispenser::new(poda_client);
+    let dispenser = Arc::new(Dispenser::new(poda_client));
 
     start_server(dispenser, port).await;
 }

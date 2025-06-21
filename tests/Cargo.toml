@@ -23,4 +23,5 @@ kzg = { path = "../kzg" }
 merkle_tree = { version = "0.1.0", path = "../merkle_tree" }
 
 [dependencies]
+challenger = { version = "0.1.0", path = "../challenger" }
 merkle_tree = { version = "0.1.0", path = "../merkle_tree" }

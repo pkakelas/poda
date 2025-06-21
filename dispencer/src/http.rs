@@ -9,7 +9,6 @@ use pod::client::PodaClientTrait;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SubmitDataRequest {
-    pub namespace: String,
     pub data: Vec<u8>,
 }
 
@@ -23,7 +22,6 @@ pub struct SubmitDataResponse {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RetrieveDataRequest {
-    pub namespace: String,
     pub commitment: FixedBytes<32>,
 }
 
@@ -40,10 +38,9 @@ pub struct HealthResponse {
 }
 
 pub async fn start_server<T: PodaClientTrait + Send + Sync + 'static>(
-    dispenser: Dispenser<T>,
+    dispenser: Arc<Dispenser<T>>,
     port: u16,
 ) {
-    let dispenser = Arc::new(dispenser);
     let dispenser_filter = warp::any().map(move || dispenser.clone());
 
     // POST /submit - Submit data for storage
@@ -87,7 +84,7 @@ async fn handle_submit_data<T: PodaClientTrait>(
     request: SubmitDataRequest,
     dispenser: Arc<Dispenser<T>>,
 ) -> Result<impl warp::Reply, Infallible> {
-    match dispenser.submit_data(request.namespace, &request.data).await {
+    match dispenser.submit_data(&request.data).await {
         Ok((commitment, assignments)) => {
             // Convert assignments to a simpler format for JSON serialization
             let mut assignments_json = std::collections::HashMap::new();
@@ -124,7 +121,7 @@ async fn handle_retrieve_data<T: PodaClientTrait>(
     request: RetrieveDataRequest,
     dispenser: Arc<Dispenser<T>>,
 ) -> Result<impl warp::Reply, Infallible> {
-    match dispenser.retrieve_data(request.namespace, request.commitment).await {
+    match dispenser.retrieve_data(request.commitment).await {
         Ok(data) => {
             Ok(warp::reply::with_status(
                 warp::reply::json(&RetrieveDataResponse {

@@ -4,10 +4,6 @@ pragma solidity ^0.8.13;
 import { MerkleProof } from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 
 contract Poda {
-    // =============================================================================
-    // STRUCTS (Optimized for Reed-Solomon)
-    // =============================================================================
-
     struct Commitment {
         uint32 size;           // Original data size in bytes
         uint32 timestamp;      // When created
@@ -35,23 +31,27 @@ contract Poda {
         bool active;
         uint256 stakedAmount;
     }
+
+    struct ChunkChallenge {
+        bytes32 challengeId;
+        address challenger;
+        uint32 issuedAt;
+        bool resolved;
+    }
     
-    // =============================================================================
-    // STORAGE (Gas Optimized for Chunks)
-    // =============================================================================
     address public owner;
     
     // Core commitment data
+    bytes32[] public commitmentList;
     mapping(bytes32 => Commitment) public commitments;
-    mapping(bytes32 => bytes32) public namespaceHashes;
-    
-    // Provider management (unchanged)
+
+    // Provider management
     address[] public providerList;
     mapping(address => Provider) public providers;
     mapping(address => string) public providerNames;
     mapping(address => string) public providerUrls;
     
-    // Chunk tracking (optimized)
+    // Chunk tracking
     mapping(bytes32 => mapping(uint16 => address)) public chunkOwners; // commitment => chunkId => provider
     mapping(bytes32 => mapping(address => uint16[])) public providerChunks; // commitment => provider => chunk list
     mapping(bytes32 => uint16[]) public availableChunkList; // commitment => list of available chunks
@@ -60,20 +60,21 @@ contract Poda {
     mapping(bytes32 => mapping(uint256 => uint256)) public chunkAvailability; // commitment => word => bitfield
     
     // Challenge system (per chunk)
-    mapping(bytes32 => mapping(uint16 => mapping(address => bytes32))) public activeChunkChallenges;
-    
+    mapping(bytes32 => mapping(uint16 => mapping(address => ChunkChallenge))) public activeChunkChallenges;
+
     // Constants
     uint16 public constant MAX_CHUNKS = 1024; // Support up to 1024 chunks
     uint16 public constant MIN_REDUNDANCY_RATIO = 150; // 1.5x (k=4, n=6)
-    uint256 public constant CHALLENGE_PENALTY = 1000000000000000000; // 0.1 ETH
+    uint256 public constant CHALLENGE_PENALTY = 0.1 ether;
     uint32 public constant CHALLENGE_PERIOD = 1 hours;
+    uint32 public constant SLASH_PENALTY_PERCENTAGE = 10; // 10% of the challenge penalty distributed to the slasher
     uint256 public minStake;
 
     // =============================================================================
     // EVENTS
     // =============================================================================
     
-    event CommitmentCreated(bytes32 indexed commitment, string namespace, uint32 size, uint16 totalChunks, uint16 requiredChunks);
+    event CommitmentCreated(bytes32 indexed commitment, uint32 size, uint16 totalChunks, uint16 requiredChunks);
     event ChunkAttestation(bytes32 indexed commitment, address indexed provider, uint16 chunkId);
     event CommitmentReady(bytes32 indexed commitment, uint16 availableChunks);
     event ChunkChallengeIssued(bytes32 indexed challengeId, bytes32 indexed commitment, uint16 chunkId, address indexed provider);
@@ -126,7 +127,6 @@ contract Poda {
     
     function submitCommitment(
         bytes32 commitment,
-        string calldata namespace,
         uint32 size,
         uint16 totalChunks,    // n (encoded chunks)
         uint16 requiredChunks, // k (original chunks)
@@ -137,7 +137,6 @@ contract Poda {
         require(size > 0, "Size must be greater than 0");
         require(totalChunks > requiredChunks, "Invalid Reed-Solomon parameters");
         require(totalChunks <= MAX_CHUNKS, "Too many chunks");
-        require(bytes(namespace).length > 0, "Empty namespace");
         require(kzgCommitment.length == 48, "Invalid KZG commitment length");
 
         // Validate redundancy ratio (prevent wasteful encoding)
@@ -145,7 +144,8 @@ contract Poda {
             (totalChunks * 100) / requiredChunks >= MIN_REDUNDANCY_RATIO,
             "Insufficient redundancy"
         );
-        
+
+        commitmentList.push(commitment);
         commitments[commitment] = Commitment({
             size: size,
             timestamp: uint32(block.timestamp),
@@ -155,9 +155,7 @@ contract Poda {
             kzgCommitment: kzgCommitment
         });
         
-        namespaceHashes[commitment] = keccak256(bytes(namespace));
-        
-        emit CommitmentCreated(commitment, namespace, size, totalChunks, requiredChunks);
+        emit CommitmentCreated(commitment, size, totalChunks, requiredChunks);
     }
     
     function submitChunkAttestations(
@@ -201,10 +199,6 @@ contract Poda {
         }
     }
 
-    // =============================================================================
-    // OPTIMIZED VIEW FUNCTIONS
-    // =============================================================================
-
     function getProviderInfo(address provider) public view returns (
         ProviderInfo memory
     ) {
@@ -239,7 +233,7 @@ contract Poda {
     function commitmentExists(bytes32 commitment) external view returns (bool) {
         return commitments[commitment].timestamp > 0;
     }
-    
+
     function isCommitmentRecoverable(bytes32 commitment) external view returns (bool) {
         Commitment memory comm = commitments[commitment];
         return comm.timestamp > 0 && comm.availableChunks >= comm.requiredChunks;
@@ -255,6 +249,7 @@ contract Poda {
         require(providers[msg.sender].active, "Provider not registered or inactive");
         require(amount > 0, "Amount must be greater than 0");
         require(providers[msg.sender].stakedAmount >= amount, "Insufficient stake");
+        require(providers[msg.sender].challengeCount > 0, "Provider has no active challenges");
         providers[msg.sender].stakedAmount -= amount;
         payable(msg.sender).transfer(amount);
     }
@@ -270,6 +265,10 @@ contract Poda {
     function getAvailableChunks(bytes32 commitment) external view returns (uint16[] memory) {
         return availableChunkList[commitment];
     }
+
+    function getCommitmentList() external view returns (bytes32[] memory) {
+        return commitmentList;
+    }
     
     function getProviderChunks(bytes32 commitment, address provider) external view returns (uint16[] memory) {
         return providerChunks[commitment][provider];
@@ -279,20 +278,18 @@ contract Poda {
         return chunkOwners[commitment][chunkId];
     }
     
-    // Gas-efficient chunk availability check using bitfields
     function isChunkAvailable(bytes32 commitment, uint16 chunkId) external view returns (bool) {
         uint256 wordIndex = chunkId / 256;
         uint256 bitIndex = chunkId % 256;
         return (chunkAvailability[commitment][wordIndex] & (1 << bitIndex)) != 0;
     }
     
-    // Batch check multiple commitments
-    function getMultipleCommitmentStatus(bytes32[] calldata commitmentList) external view returns (bool[] memory) {
-        uint256 length = commitmentList.length;
+    function getMultipleCommitmentStatus(bytes32[] calldata cmList) external view returns (bool[] memory) {
+        uint256 length = cmList.length;
         bool[] memory statuses = new bool[](length);
         
         for (uint256 i = 0; i < length;) {
-            Commitment memory comm = commitments[commitmentList[i]];
+            Commitment memory comm = commitments[cmList[i]];
             statuses[i] = comm.timestamp > 0 && comm.availableChunks >= comm.requiredChunks;
             unchecked { ++i; }
         }
@@ -301,8 +298,15 @@ contract Poda {
     }
 
     // =============================================================================
-    // CHUNK-BASED CHALLENGE SYSTEM
+    // CHALLENGE SYSTEM
     // =============================================================================
+    
+    // Helper struct for challenge queries
+    struct ChallengeInfo {
+        ChunkChallenge challenge;
+        bytes32 commitment;
+        uint16 chunkId;
+    }
     
     function issueChunkChallenge(
         bytes32 commitment, 
@@ -310,13 +314,123 @@ contract Poda {
         address provider
     ) external validCommitment(commitment) returns (bytes32 challengeId) {
         require(chunkOwners[commitment][chunkId] == provider, "Provider doesn't own this chunk");
-        require(activeChunkChallenges[commitment][chunkId][provider] == bytes32(0), "Challenge already active");
+        require(activeChunkChallenges[commitment][chunkId][provider].challengeId == bytes32(0), "Challenge already active");
         
         challengeId = keccak256(abi.encodePacked(commitment, chunkId, provider, block.timestamp, msg.sender));
-        activeChunkChallenges[commitment][chunkId][provider] = challengeId;
+
+
+        activeChunkChallenges[commitment][chunkId][provider] = ChunkChallenge({
+            challengeId: challengeId,
+            challenger: msg.sender,
+            // TODO: Check with pod team if this is feasible
+            issuedAt: uint32(block.timestamp), 
+            resolved: false
+        });
+
         providers[provider].challengeCount++;
 
         emit ChunkChallengeIssued(challengeId, commitment, chunkId, provider);
+    }
+
+    function getCommitmentChunkMap(bytes32 commitment) external view returns (
+        address[] memory _providers,
+        uint16[][] memory _chunks
+    ) {
+        // Count active providers for this commitment
+        uint256 activeProviders = 0;
+        for (uint256 i = 0; i < providerList.length; i++) {
+            if (providerChunks[commitment][providerList[i]].length > 0) {
+                activeProviders++;
+            }
+        }
+        
+        _providers = new address[](activeProviders);
+        _chunks = new uint16[][](activeProviders);
+        
+        uint256 index = 0;
+        for (uint256 i = 0; i < providerList.length; i++) {
+            address provider = providerList[i];
+            uint16[] memory providerChunkList = providerChunks[commitment][provider];
+            
+            if (providerChunkList.length > 0) {
+                _providers[index] = provider;
+                _chunks[index] = providerChunkList;
+                index++;
+            }
+        }
+    }
+
+    /**
+     * @dev Internal helper to get challenges for a provider based on a filter function
+     * @param provider The provider address
+     * @param filterFunction Function to determine if a challenge should be included
+     * @return Array of ChallengeInfo structs containing challenge data
+     */
+    function _getProviderChallenges(
+        address provider,
+        function(bytes32, uint16, address) view returns (bool) filterFunction
+    ) internal view returns (ChallengeInfo[] memory) {
+        uint256 count = 0;
+        for (uint256 i = 0; i < commitmentList.length; i++) {
+            bytes32 commitment = commitmentList[i];
+            uint16[] memory chunks = providerChunks[commitment][provider];
+            
+            for (uint256 j = 0; j < chunks.length; j++) {
+                if (filterFunction(commitment, chunks[j], provider)) {
+                    count++;
+                }
+            }
+        }
+        
+        ChallengeInfo[] memory challenges = new ChallengeInfo[](count);
+        uint256 index = 0;
+        
+        for (uint256 i = 0; i < commitmentList.length; i++) {
+            bytes32 commitment = commitmentList[i];
+            uint16[] memory chunks = providerChunks[commitment][provider];
+            
+            for (uint256 j = 0; j < chunks.length; j++) {
+                if (filterFunction(commitment, chunks[j], provider)) {
+                    challenges[index] = ChallengeInfo({
+                        challenge: activeChunkChallenges[commitment][chunks[j]][provider],
+                        commitment: commitment,
+                        chunkId: chunks[j]
+                    });
+                    index++;
+                }
+            }
+        }
+        
+        return challenges;
+    }
+
+    function getChunkChallenge(bytes32 commitment, uint16 chunkId, address provider) external view returns (ChallengeInfo memory) {
+        require(activeChunkChallenges[commitment][chunkId][provider].challengeId != bytes32(0), "No active challenge");
+
+        return ChallengeInfo({
+            challenge: activeChunkChallenges[commitment][chunkId][provider],
+            commitment: commitment,
+            chunkId: chunkId
+        });
+    }
+
+    // TODO: Remove this function once we have a better way to get expired challenges
+    function getProviderExpiredChallenges(address provider) external view returns (ChallengeInfo[] memory) {
+        return _getProviderChallenges(provider, isChallengeExpired);
+    }
+
+    // TODO: Remove this function once we have a better way to get active challenges
+    function getProviderActiveChallenges(address provider) external view returns (ChallengeInfo[] memory) {
+        return _getProviderChallenges(provider, isChallengeActive);
+    }
+
+    function isChallengeActive(
+        bytes32 commitment,
+        uint16 chunkId,
+        address provider
+    ) internal view returns (bool) {
+        ChunkChallenge memory challenge = activeChunkChallenges[commitment][chunkId][provider];
+        return challenge.challengeId != bytes32(0) && !challenge.resolved && challenge.issuedAt + CHALLENGE_PERIOD > block.timestamp;
     }
 
     function respondToChunkChallenge(
@@ -325,18 +439,20 @@ contract Poda {
         bytes calldata chunkData,
         bytes32[] calldata proof
     ) external onlyRegisteredProvider {
-        bytes32 challengeId = activeChunkChallenges[commitment][chunkId][msg.sender];
-        require(challengeId != bytes32(0), "No active challenge");
+        ChunkChallenge storage challenge = activeChunkChallenges[commitment][chunkId][msg.sender];
+        require(challenge.challengeId != bytes32(0), "No active challenge");
+        require(!challenge.resolved, "Challenge already resolved");
         require(proof.length > 0, "Invalid proof");
+        require(activeChunkChallenges[commitment][chunkId][msg.sender].issuedAt + CHALLENGE_PERIOD > block.timestamp, "Challenge expired");
 
         if (verifyChunkProof(proof, commitment, chunkId, chunkData)) {
             providers[msg.sender].challengeSuccessCount++;
         }
         else {
-            slashProviderChunk(commitment, chunkId, msg.sender);
+            slashProviderChunk(challenge, commitment, chunkId, msg.sender);
         }
 
-        activeChunkChallenges[commitment][chunkId][msg.sender] = bytes32(0);
+        activeChunkChallenges[commitment][chunkId][msg.sender].resolved = true;
     }
     
     function verifyChunkProof(
@@ -351,12 +467,12 @@ contract Poda {
     }
     
     function slashProviderChunk(
+        ChunkChallenge memory challenge,
         bytes32 commitment,
         uint16 chunkId,
         address provider
     ) internal {
-        bytes32 challengeId = activeChunkChallenges[commitment][chunkId][provider];
-        require(challengeId != bytes32(0), "No active challenge");
+        require(challenge.challengeId != bytes32(0), "No active challenge");
         
         // Remove chunk from provider
         chunkOwners[commitment][chunkId] = address(0);
@@ -370,7 +486,44 @@ contract Poda {
         uint256 bitIndex = chunkId % 256;
         chunkAvailability[commitment][wordIndex] &= ~(1 << bitIndex);
         
-        providers[provider].stakedAmount -= CHALLENGE_PENALTY;
+        if (providers[provider].stakedAmount >= CHALLENGE_PENALTY) {
+            providers[provider].stakedAmount -= CHALLENGE_PENALTY;
+        } else {
+            // If insufficient stake, mark provider as inactive
+            providers[provider].active = false;
+            providers[provider].stakedAmount = 0;
+        }
+    }
+
+    function isChallengeExpired(
+        bytes32 commitment,
+        uint16 chunkId,
+        address provider
+    ) public view returns (bool expired) {
+        ChunkChallenge memory challenge = activeChunkChallenges[commitment][chunkId][provider];
+        
+        if (challenge.challengeId == bytes32(0) || challenge.resolved) {
+            return false;
+        }
+        
+        return block.timestamp > challenge.issuedAt + CHALLENGE_PERIOD;
+    }
+
+    function slashExpiredChallenge(
+        bytes32 commitment,
+        uint16 chunkId,
+        address provider
+    ) external {
+        ChunkChallenge storage challenge = activeChunkChallenges[commitment][chunkId][provider];
+        require(challenge.challengeId != bytes32(0), "No active challenge");
+        require(!challenge.resolved, "Challenge already resolved");
+        require(block.timestamp > challenge.issuedAt + CHALLENGE_PERIOD, "Challenge not expired yet");
+        
+        slashProviderChunk(challenge, commitment, chunkId, provider);
+        
+        activeChunkChallenges[commitment][chunkId][provider].resolved = true;
+        
+        payable(msg.sender).transfer(CHALLENGE_PENALTY / 10); // 10% bounty
     }
 
     // =============================================================================

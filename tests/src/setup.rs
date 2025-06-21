@@ -1,25 +1,33 @@
 #[cfg(test)]
 pub mod setup {
-    use {
-        std::fs,
-        std::net::TcpListener,
-        std::time::Duration,
-        std::{str::FromStr, sync::Arc},
-        pod::client::PodaClientTrait,
-        pod::{Address, EthereumWallet, PodProvider, PodProviderBuilder, Provider, U256},
-        pod::{client::PodaClient, PrivateKeySigner},
-        serde::Deserialize,
-        storage_provider::{FileStorage},
-        dispencer::dispenser::Dispenser,
-        tempfile::TempDir,
-        tokio::sync::oneshot,
-        tokio::time::sleep,
+    #[cfg(test)]
+    use {challenger::challenger::Challenger};
+    use serde::Deserialize; 
+    use dispencer::dispenser::Dispenser;
+    use pod::{
+        client::{PodaClient, PodaClientTrait},
+        Address,
+        EthereumWallet,
+        PodProvider,
+        PodProviderBuilder,
+        PrivateKeySigner,
+        Provider,
+        U256
     };
+    use types::constants::ONE_ETH;
+    use std::{
+        net::TcpListener,
+        str::FromStr,
+        sync::Arc,
+        time::Duration
+    };
+    use storage_provider::{FileStorage};
+    use tempfile::TempDir;
+    use tokio::{sync::oneshot, time::sleep};
 
     pub struct ServerHandle {
         _temp_dir: Option<TempDir>,
         _shutdown_tx: oneshot::Sender<()>,
-        pub base_url: String,
     }
 
     #[cfg(test)]
@@ -32,18 +40,33 @@ pub mod setup {
     #[cfg(test)]
     pub struct Setup {
         pub poda_address: Address,
-        pub dispencer_handle: ServerHandle,
-        pub dispencer_client: PodaClient,
-        pub storage_server_handles: Vec<ServerHandle>,
+        pub dispencer_handle: DispencerHandle,
+        pub storage_server_handles: Vec<StorageServerHandle>,
+        pub challenger: Option<Challenger>,
+    }
+
+    pub struct StorageServerHandle {
+        pub storage: Arc<FileStorage>,
+        pub base_url: String,
+        pub name: String,
+        pub owner_address: Address,
+        pub pod: PodaClient,
+        pub server: ServerHandle,
+    }
+
+    pub struct DispencerHandle {
+        pub dispencer: Arc<Dispenser<PodaClient>>,
+        pub base_url: String,
+        pub owner_address: Address,
+        pub server: ServerHandle
     }
 
     const FAUCET_PRIVATE_KEY: &str = "6df79891f22b0f3c9e9fb53b966a8861fd6fef69f99772c5c4dbcf303f10d901";
-    const ONE_ETH: u128 = 1000000000000000000;
     const MIN_STAKE: u128 = ONE_ETH / 100;
 
     // n_actors: Number of actors in setup. 1 will be dispencer, the rest will be storage providers
     #[cfg(test)]
-    pub async fn setup_pod(n_actors: usize, rpc_url: &str) -> Setup {
+    pub async fn setup_pod(n_storage_providers: usize, rpc_url: &str, with_challenger: bool) -> Setup {
         println!("Setting up pod");
         let faucet = PrivateKeySigner::from_str(FAUCET_PRIVATE_KEY).expect("Invalid private key");
         let faucet_address = faucet.address();
@@ -67,19 +90,27 @@ pub mod setup {
         let dispencer_client = clients[0].clone();
         let dispencer_handle = start_new_dispencer_server(&dispencer_client).await;
 
-        let mut server_handles: Vec<ServerHandle> = Vec::new();
+        let challenger = if with_challenger {
+            Some(Challenger::new(dispencer_client.clone(), 10, Duration::from_secs(10)))
+        } else {
+            None
+        };
+
+        let mut storage_server_handles: Vec<StorageServerHandle> = Vec::new();
         
-        for i in 1..n_actors {
+        for i in 2..n_storage_providers + 2 {
             let storage_provider = clients[i].clone();
-            let handle = start_new_storage_provider_server(&storage_provider).await;
-            let res = storage_provider.register_provider(format!("storage-provider-{}", i), handle.base_url.to_string(), ONE_ETH / 100).await;
+            println!("Starting storage provider server for provider: {:?}", storage_provider.signer.address());
+            let name = format!("storage-provider-{}", i);
+            let handle = start_new_storage_provider_server(&storage_provider, &name).await;
+            let res = storage_provider.register_provider(name, handle.base_url.to_string(), ONE_ETH).await;
 
             if res.is_err() {
                 println!("Error registering provider. Probably already registered.");
             }
 
             println!("Storage provider url: {:?}", handle.base_url);
-            server_handles.push(handle);
+            storage_server_handles.push(handle);
         }
 
         let providers = dispencer_client.get_providers().await.unwrap();
@@ -88,8 +119,8 @@ pub mod setup {
         Setup {
             poda_address,
             dispencer_handle,
-            dispencer_client,
-            storage_server_handles: server_handles,
+            storage_server_handles,
+            challenger,
         }
     }
 
@@ -104,7 +135,7 @@ pub mod setup {
 
     #[cfg(test)]
     pub fn get_actors() -> Vec<Actor> {
-        let actors = fs::read_to_string("src/actors.json").unwrap();
+        let actors = std::fs::read_to_string("src/actors.json").unwrap();
         let actors: Vec<Actor> = serde_json::from_str(&actors).unwrap();
         actors
     }
@@ -112,7 +143,7 @@ pub mod setup {
     #[cfg(test)]
     async fn faucet_if_needed(faucet: PodProvider, actors: &Vec<Actor>) -> () {
         for actor in actors {
-            let min_balance = U256::from(ONE_ETH).div_ceil(U256::from(10)); // 0.1 eth
+            let min_balance = U256::from(ONE_ETH) * U256::from(1.5); // 100 eth
             let balance = faucet.get_balance(actor.address).await.unwrap();
 
             if balance < min_balance {
@@ -125,7 +156,7 @@ pub mod setup {
     }
 
     #[cfg(test)]
-    async fn start_new_dispencer_server(pod: &PodaClient) -> ServerHandle {
+    async fn start_new_dispencer_server(pod: &PodaClient) -> DispencerHandle {
         // Find an available port
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -133,10 +164,10 @@ pub mod setup {
 
         // Create shutdowjn channel
         let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-        let dispencer_instance = Dispenser::new(pod.clone());
+        let dispencer_instance = Arc::new(Dispenser::new(pod.clone()));
 
         // Start the server in the background
-        let server = dispencer::http::start_server(dispencer_instance, port);
+        let server = dispencer::http::start_server(dispencer_instance.clone(), port);
         let _ = tokio::spawn(async move {
             let server = server;
             tokio::select! {
@@ -150,15 +181,19 @@ pub mod setup {
 
         let base_url = format!("http://localhost:{}", port);
 
-        ServerHandle {
+        DispencerHandle {
             base_url: base_url,
-            _temp_dir: None,
-            _shutdown_tx: shutdown_tx,
+            server: ServerHandle {
+                _temp_dir: None,
+                _shutdown_tx: shutdown_tx,
+            },
+            owner_address: pod.signer.address(),
+            dispencer: dispencer_instance,
         }
     }
 
     #[cfg(test)]
-    async fn start_new_storage_provider_server(pod: &PodaClient) -> ServerHandle {
+    async fn start_new_storage_provider_server(pod: &PodaClient, name: &str) -> StorageServerHandle {
         // Find an available port
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -173,7 +208,7 @@ pub mod setup {
         let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
 
         // Start the server in the background
-        let server = storage_provider::http::start_server(storage, Arc::new(pod.clone()), port);
+        let server = storage_provider::http::start_server(storage.clone(), Arc::new(pod.clone()), port);
         let _ = tokio::spawn(async move {
             let server = server;
             tokio::select! {
@@ -187,10 +222,16 @@ pub mod setup {
 
         let base_url = format!("http://localhost:{}", port);
 
-        ServerHandle {
-            base_url: base_url,
-            _temp_dir: Some(temp_dir),
-            _shutdown_tx: shutdown_tx,
+        StorageServerHandle {
+            storage,
+            base_url,
+            owner_address: pod.signer.address(),
+            server: ServerHandle {
+                _temp_dir: Some(temp_dir),
+                _shutdown_tx: shutdown_tx,
+            },
+            name: name.to_string(),
+            pod: pod.clone(),
         }
     }
 }

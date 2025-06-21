@@ -32,11 +32,18 @@ pub struct MerkleProof {
     pub path: Vec<Hash>,
 }
 
+impl Default for MerkleProof {
+    fn default() -> Self {
+        Self { path: vec![] }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct MerkleMultiProof {
     path: Vec<Hash>,
     flags: Vec<bool>,
 }
+
 
 impl MerkleProof {
     pub fn new(path: Vec<Hash>) -> Self {
@@ -137,163 +144,6 @@ impl StandardMerkleTree {
         proof: MerkleMultiProof,
     ) -> Result<bool> {
         MerkleTree::verify_multi_proof(root, leaves, proof)
-    }
-}
-
-fn join_prefix(prefix: &str, sub: &str) -> String {
-    match (prefix.is_empty(), sub.is_empty()) {
-        (true, true) => "".to_string(),
-        (true, false) => sub.to_string(),
-        (false, true) => prefix.to_string(),
-        (false, false) => format!("{}.{}", prefix, sub),
-    }
-}
-
-pub fn index_prefix(prefix: &str, index: usize) -> String {
-    if prefix.is_empty() {
-        format!("[{}]", index)
-    } else {
-        format!("{}[{}]", prefix, index)
-    }
-}
-
-fn apply_prefix_to_leaf(prefix: &str, (sub_prefix, leaf): (String, Hash)) -> Hash {
-    StandardMerkleTree::hash_leaf(join_prefix(prefix, &sub_prefix), leaf)
-}
-
-fn apply_prefix_to_leaves(prefix: &str, leaves: Vec<(String, Hash)>) -> Vec<Hash> {
-    leaves
-        .into_iter()
-        .map(|leaf| apply_prefix_to_leaf(prefix, leaf))
-        .collect()
-}
-pub struct MerkleBuilder {
-    leaves: Vec<(String, Hash)>,
-}
-
-impl Default for MerkleBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl MerkleBuilder {
-    pub fn new() -> Self {
-        Self { leaves: Vec::new() }
-    }
-
-    pub fn add_field(&mut self, name: impl Into<String>, hash: Hash) {
-        self.leaves.push((name.into(), hash));
-    }
-
-    pub fn add_merkleizable(&mut self, prefix: &str, item: &impl Merkleizable) {
-        for (sub_field, hash) in item.leaves() {
-            self.leaves.push((join_prefix(prefix, &sub_field), hash));
-        }
-    }
-
-    pub fn add_slice<T: Merkleizable>(&mut self, prefix: &str, items: &[T]) {
-        for (index, item) in items.iter().enumerate() {
-            self.add_merkleizable(&index_prefix(prefix, index), item);
-        }
-    }
-
-    pub fn build(self) -> Vec<(String, Hash)> {
-        self.leaves
-    }
-}
-pub trait Merkleizable {
-    fn append_leaves(&self, builder: &mut MerkleBuilder);
-
-    fn leaves(&self) -> Vec<(String, Hash)> {
-        let mut builder = MerkleBuilder::new();
-        self.append_leaves(&mut builder);
-        builder.build()
-    }
-
-    fn to_merkle_tree(&self) -> StandardMerkleTree {
-        let leaves = self
-            .leaves()
-            .into_iter()
-            .map(|(path, leaf)| StandardMerkleTree::hash_leaf(path, leaf))
-            .collect::<Vec<_>>();
-
-        StandardMerkleTree::new(leaves)
-    }
-
-    // Generate a proof for the given item.
-    fn generate_proof<T: Merkleizable>(&self, prefix: &str, item: &T) -> Result<MerkleProof> {
-        let leaves = item.leaves();
-        if leaves.len() != 1 {
-            bail!("more than one leaf given");
-        }
-
-        let leaf = apply_prefix_to_leaf(prefix, leaves[0].to_owned());
-        self.to_merkle_tree().generate_proof(leaf)
-    }
-
-    // Generate proofs for the given items.
-    fn generate_proofs<T: Merkleizable>(
-        &self,
-        prefix: &str,
-        items: &[T],
-    ) -> Result<Vec<MerkleProof>> {
-        let leaves = apply_prefix_to_leaves(prefix, items.leaves());
-        let tree = self.to_merkle_tree();
-        leaves
-            .into_iter()
-            .map(|leaf| tree.generate_proof(leaf))
-            .collect()
-    }
-
-    // Generates a multiproof for all children of a given item.
-    fn generate_multi_proof<T: Merkleizable>(
-        &self,
-        prefix: &str,
-        item: &T,
-    ) -> Option<(Vec<Hash>, MerkleMultiProof)> {
-        let leaves = apply_prefix_to_leaves(prefix, item.leaves());
-        Some((
-            leaves.clone(),
-            self.to_merkle_tree().generate_multi_proof(&leaves)?,
-        ))
-    }
-
-    // Generates multiproofs for all children of the given items.
-    fn generate_multi_proofs<T: Merkleizable>(
-        &self,
-        prefix: &str,
-        items: &[T],
-    ) -> Option<(Vec<Hash>, MerkleMultiProof)> {
-        let leaves = items
-            .iter()
-            .enumerate()
-            .flat_map(|(index, item)| {
-                apply_prefix_to_leaves(&index_prefix(prefix, index), item.leaves())
-            })
-            .collect::<Vec<_>>();
-        Some((
-            leaves.clone(),
-            self.to_merkle_tree().generate_multi_proof(&leaves)?,
-        ))
-    }
-}
-
-impl Merkleizable for Hash {
-    fn append_leaves(&self, builder: &mut MerkleBuilder) {
-        builder.add_field("", *self);
-    }
-}
-
-impl<T: Merkleizable> Merkleizable for &[T] {
-    fn append_leaves(&self, builder: &mut MerkleBuilder) {
-        builder.add_slice("", self);
-    }
-}
-
-impl<T: Merkleizable> Merkleizable for Vec<T> {
-    fn append_leaves(&self, builder: &mut MerkleBuilder) {
-        self.as_slice().append_leaves(builder);
     }
 }
 

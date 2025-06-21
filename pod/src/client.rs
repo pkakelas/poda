@@ -6,7 +6,7 @@ use alloy::primitives::U256;
 use anyhow::{Result};
 use pod_sdk::{network::PodNetwork, provider::{PodProvider, PodProviderBuilder}, Address, EthereumWallet, PrivateKeySigner, Provider, Bytes};
 use crate::client::Poda::PodaInstance;
-pub use Poda::{ProviderInfo, Commitment};
+pub use Poda::{ProviderInfo, Commitment, ChallengeInfo};
 
 sol!(
     #[sol(rpc)]
@@ -19,7 +19,7 @@ sol!(
 #[async_trait]
 pub trait PodaClientTrait {
     async fn register_provider(&self, name: String, url: String, stake: u128) -> Result<()>;
-    async fn submit_commitment(&self, commitment: FixedBytes<32>, namespace: String, size: u32, total_chunks: u16, required_chunks: u16, kzg_commitment: Bytes) -> Result<()>;
+    async fn submit_commitment(&self, commitment: FixedBytes<32>, size: u32, total_chunks: u16, required_chunks: u16, kzg_commitment: Bytes) -> Result<()>;
     async fn submit_chunk_attestations(&self, commitment: FixedBytes<32>, chunk_ids: Vec<u16>) -> Result<()>;
     async fn get_providers(&self) -> Result<Vec<ProviderInfo>>;
     async fn get_eligible_providers(&self) -> Result<Vec<ProviderInfo>>;
@@ -32,22 +32,27 @@ pub trait PodaClientTrait {
     async fn get_chunk_owner(&self, commitment: FixedBytes<32>, chunk_id: u16) -> Result<Address>;
     async fn is_chunk_available(&self, commitment: FixedBytes<32>, chunk_id: u16) -> Result<bool>;
     async fn get_multiple_commitment_status(&self, commitment_list: Vec<FixedBytes<32>>) -> Result<Vec<bool>>;
-    async fn issue_chunk_challenge(&self, commitment: FixedBytes<32>, chunk_id: u16, provider: Address) -> Result<FixedBytes<32>>;
-    async fn respond_to_chunk_challenge(&self, commitment: FixedBytes<32>, chunk_id: u16, proof: FixedBytes<32>) -> Result<()>;
+    async fn issue_chunk_challenge(&self, commitment: FixedBytes<32>, chunk_id: u16, provider: Address) -> Result<ChallengeInfo>;
+    async fn respond_to_chunk_challenge(&self, commitment: FixedBytes<32>, chunk_id: u16, chunk_data: Bytes, proof: Vec<FixedBytes<32>>) -> Result<()>;
     async fn deploy_poda(provider: PodProvider, owner: Address, min_stake: u128) -> Result<Address>;
     async fn wait_for_availability(&self, commitment: FixedBytes<32>) -> Result<()>;
     async fn verify_chunk_proof(&self, proof: Vec<FixedBytes<32>>, root: FixedBytes<32>, chunk_index: u16, chunk_data: Bytes) -> Result<bool>;
+    async fn get_provider_active_challenges(&self, provider: Address) -> Result<Vec<ChallengeInfo>>;
+    async fn get_provider_expired_challenges(&self, provider: Address) -> Result<Vec<ChallengeInfo>>;
+    async fn get_commitment_list(&self) -> Result<Vec<FixedBytes<32>>>;
+    async fn get_chunk_challenge(&self, commitment: FixedBytes<32>, chunk_id: u16, provider: Address) -> Result<ChallengeInfo>;
+    async fn is_challenge_expired(&self, commitment: FixedBytes<32>, chunk_id: u16, provider: Address) -> Result<bool>;
+    async fn slash_expired_challenge(&self, commitment: FixedBytes<32>, chunk_id: u16, provider: Address) -> Result<()>;
 }
 
 #[derive(Clone)]
 pub struct PodaClient {
     contract: PodaInstance<(), PodProvider, PodNetwork>,
     provider: PodProvider,
-    signer: PrivateKeySigner,
+    pub signer: PrivateKeySigner,
+    pub address: Address,
     #[allow(dead_code)]
     rpc_url: String,
-    #[allow(dead_code)]
-    address: Address,
 }
 
 impl PodaClient {
@@ -104,13 +109,12 @@ impl PodaClientTrait for PodaClient {
     async fn submit_commitment(
         &self, 
         commitment: FixedBytes<32>, 
-        namespace: String, 
         size: u32, 
         total_chunks: u16, 
         required_chunks: u16,
         kzg_commitment: Bytes
     ) -> Result<()> {
-        let submit = self.contract.submitCommitment(commitment, namespace, size, total_chunks, required_chunks, kzg_commitment).send().await?;
+        let submit = self.contract.submitCommitment(commitment, size, total_chunks, required_chunks, kzg_commitment).send().await?;
         
         match submit.get_receipt().await {
             Ok(receipt) => {
@@ -204,36 +208,51 @@ impl PodaClientTrait for PodaClient {
     // CHALLENGE SYSTEM
     // =============================================================================
 
-    async fn issue_chunk_challenge(&self, commitment: FixedBytes<32>, chunk_id: u16, provider: Address) -> Result<FixedBytes<32>> {
-        let challenge = self.contract.issueChunkChallenge(commitment, chunk_id, provider).send().await?;
-        
-        match challenge.get_receipt().await {
+    async fn is_challenge_expired(&self, commitment: FixedBytes<32>, chunk_id: u16, provider: Address) -> Result<bool> {
+        let result = self.contract.isChallengeExpired(commitment, chunk_id, provider).call().await?;
+        Ok(result.expired)
+    }
+
+    async fn get_provider_expired_challenges(&self, provider: Address) -> Result<Vec<ChallengeInfo>> {
+        let challenges = self.contract.getProviderExpiredChallenges(provider).call().await?;
+        let challenges = challenges._0.iter().map(|c| c.clone()).collect::<Vec<_>>();
+        Ok(challenges)
+    }
+
+    async fn slash_expired_challenge(&self, commitment: FixedBytes<32>, chunk_id: u16, provider: Address) -> Result<()> {
+        let res = self.contract.slashExpiredChallenge(commitment, chunk_id, provider).send().await?;
+
+        match res.get_receipt().await {
             Ok(receipt) => {
                 if receipt.status() {
-                    // Extract challenge ID from logs or return a placeholder
-                    // In a real implementation, you'd parse the event logs
-                    Ok(FixedBytes::from([0u8; 32]))
+                    Ok(())
                 } else {
-                    Err(anyhow::anyhow!("Challenge failed: {:?}", receipt))
+                    Err(anyhow::anyhow!("Slashing failed: {:?}", receipt))
                 }
             }
             Err(e) => Err(anyhow::anyhow!("Failed to get receipt: {}", e))
         }
     }
 
-    async fn respond_to_chunk_challenge(&self, commitment: FixedBytes<32>, chunk_id: u16, proof: FixedBytes<32>) -> Result<()> {
-        let respond = self.contract.respondToChunkChallenge(commitment, chunk_id, proof).send().await?;
-        
-        match respond.get_receipt().await {
-            Ok(receipt) => {
-                if receipt.status() {
-                    Ok(())
-                } else {
-                    Err(anyhow::anyhow!("Response failed: {:?}", receipt))
-                }
-            }
-            Err(e) => Err(anyhow::anyhow!("Failed to get receipt: {}", e))
-        }
+    async fn get_provider_active_challenges(&self, provider: Address) -> Result<Vec<ChallengeInfo>> {
+        let challenges = self.contract.getProviderActiveChallenges(provider).call().await?;
+        let challenges = challenges._0.iter().map(|c| c.clone()).collect::<Vec<_>>();
+        Ok(challenges)
+    }
+
+    async fn get_chunk_challenge(&self, commitment: FixedBytes<32>, chunk_id: u16, provider: Address) -> Result<ChallengeInfo> {
+        let challenge = self.contract.getChunkChallenge(commitment, chunk_id, provider).call().await?;
+        return Ok(challenge._0);
+    }
+
+    async fn get_commitment_list(&self) -> Result<Vec<FixedBytes<32>>> {
+        let commitments = self.contract.getCommitmentList().call().await?;
+        Ok(commitments._0)
+    }
+
+    async fn issue_chunk_challenge(&self, commitment: FixedBytes<32>, chunk_id: u16, provider: Address) -> Result<ChallengeInfo> {
+        self.contract.issueChunkChallenge(commitment, chunk_id, provider).send().await?.watch().await?;
+        return self.get_chunk_challenge(commitment, chunk_id, provider).await;
     }
 
     async fn verify_chunk_proof(&self, proof: Vec<FixedBytes<32>>, root: FixedBytes<32>, chunk_index: u16, chunk_data: Bytes) -> Result<bool> {
@@ -274,6 +293,31 @@ impl PodaClientTrait for PodaClient {
             }
             println!("Waiting for commitment to be recoverable... {}/{} chunks", commitment_info.availableChunks, commitment_info.totalChunks);
             tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    }
+
+    async fn respond_to_chunk_challenge(&self, commitment: FixedBytes<32>, chunk_id: u16, chunk_data: Bytes, proof: Vec<FixedBytes<32>>) -> Result<()> {
+        // Estimate gas for the transaction
+        let gas_estimate = self.contract
+            .respondToChunkChallenge(commitment, chunk_id, chunk_data.clone(), proof.clone())
+            .estimate_gas()
+            .await?; 
+        
+        let response = self.contract
+            .respondToChunkChallenge(commitment, chunk_id, chunk_data, proof)
+            .gas(gas_estimate * 2) // 2x buffer
+            .send()
+            .await?;
+        
+        match response.get_receipt().await {
+            Ok(receipt) => {
+                if receipt.status() {
+                    Ok(())
+                } else {
+                    Err(anyhow::anyhow!("Challenge response failed: {:?}", receipt))
+                }
+            }
+            Err(e) => Err(anyhow::anyhow!("Failed to get receipt: {}", e))
         }
     }
 
@@ -326,13 +370,12 @@ mod tests {
         // Test data
         let commitment = FixedBytes::from([1u8; 32]);
         let kzg_commitment = Bytes::from([1u8; 48]);
-        let namespace = "test_namespace".to_string();
         let size = 1024u32;
         let total_chunks = 6u16;
         let required_chunks = 4u16;
 
         // Submit commitment and wait for confirmation
-        pod.submit_commitment(commitment, namespace, size, total_chunks, required_chunks, kzg_commitment)
+        pod.submit_commitment(commitment, size, total_chunks, required_chunks, kzg_commitment)
             .await
             .expect("Failed to submit commitment");
             
@@ -362,13 +405,12 @@ mod tests {
         // Test data
         let commitment = FixedBytes::from([2u8; 32]);
         let kzg_commitment = Bytes::from([2u8; 48]);
-        let namespace = "test_namespace_2".to_string();
         let size = 2048u32;
         let total_chunks = 6u16;
         let required_chunks = 4u16;
 
         // Submit commitment
-        pod.submit_commitment(commitment, namespace, size, total_chunks, required_chunks, kzg_commitment)
+        pod.submit_commitment(commitment, size, total_chunks, required_chunks, kzg_commitment)
             .await
             .expect("Failed to submit commitment");
 
@@ -415,13 +457,12 @@ mod tests {
         // Test data
         let commitment = FixedBytes::from([3u8; 32]);
         let kzg_commitment = Bytes::from([3u8; 48]);
-        let namespace = "test_namespace_3".to_string();
         let size = 1024u32;
         let total_chunks = 6u16;
         let required_chunks = 4u16;
 
         // Submit commitment
-        pod.submit_commitment(commitment, namespace, size, total_chunks, required_chunks, kzg_commitment)
+        pod.submit_commitment(commitment, size, total_chunks, required_chunks, kzg_commitment)
             .await
             .expect("Failed to submit commitment");
 
