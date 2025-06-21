@@ -8,7 +8,10 @@ use serde::{Deserialize, Serialize};
 use pod::client::{PodaClient, PodaClientTrait};
 use crate::storage::ChunkStorageTrait;
 use kzg::types::KzgProof;
-use types::{log::{info, debug, error}, Chunk};
+use common::{
+    log::{info, debug, error},
+    types::Chunk
+};
 use hex;
 
 #[derive(Debug, Deserialize)]

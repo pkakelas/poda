@@ -1,7 +1,7 @@
 mod hash;  
 mod tree;
 
-use types::{Chunk, FixedBytes};
+use common::types::{Chunk, FixedBytes};
 use anyhow::Result;
 pub use crate::tree::{MerkleProof, MerkleTree, StandardMerkleTree};
 
@@ -20,7 +20,7 @@ pub fn verify_proof(root: FixedBytes<32>, leaf: &Chunk, proof: MerkleProof) -> b
 
 #[cfg(test)]
 mod tests {
-    use types::{keccak256, SolValue};
+    use common::types::{keccak256, SolValue};
 
     use super::*;
 

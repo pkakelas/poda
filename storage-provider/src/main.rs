@@ -8,7 +8,7 @@ use std::{str::FromStr, sync::Arc, time::Duration};
 use pod::{client::PodaClient, PrivateKeySigner, Address};
 use file_storage::FileStorage;
 use dotenv::dotenv;
-use types::log::{error, info};
+use common::log::{error, info};
 use crate::responder::respond_to_active_challenges;
 
 fn load_config() -> (String, Address, u16, String, u64) {

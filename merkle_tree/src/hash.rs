@@ -1,5 +1,4 @@
-use types::Bytes;
-pub use types::{B256 as Hash, keccak256 as hash, Address};
+pub use common::types::{Bytes, B256 as Hash, keccak256 as hash, Address};
 
 pub trait Hashable {
     fn hash_custom(&self) -> Hash;

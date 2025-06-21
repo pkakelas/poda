@@ -1,20 +1,11 @@
-pub mod constants;
-pub mod log;
-
-use serde::{Serialize, Deserialize};
 pub use alloy::primitives::{FixedBytes, Bytes, B256, Address, keccak256, U256};
 pub use alloy::sol_types::SolValue;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Chunk {
     pub index: u16,
     pub data: Vec<u8>,
-}
-
-impl Default for Chunk {
-    fn default() -> Self {
-        Self { index: 0, data: vec![] }
-    }
 }
 
 impl Chunk {

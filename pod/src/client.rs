@@ -7,7 +7,7 @@ use anyhow::{Result};
 use pod_sdk::{network::PodNetwork, provider::{PodProvider, PodProviderBuilder}, Address, EthereumWallet, PrivateKeySigner, Provider, Bytes};
 use crate::client::Poda::PodaInstance;
 pub use Poda::{ProviderInfo, Commitment, ChallengeInfo};
-use types::log::info;
+use common::log::info;
 
 sol!(
     #[sol(rpc)]
@@ -347,7 +347,7 @@ mod tests {
     const RPC_URL: &str = "http://localhost:8545";
     const CONTRACT_ADDRESS: &str = "0x0EaD13CEadcE8880F5167bFDA20C7F1A7F18217d";
     const PRIVATE_KEY: &str = "6df79891f22b0f3c9e9fb53b966a8861fd6fef69f99772c5c4dbcf303f10d901";
-    use types::log::{info, error, debug};
+    use common::log::{info, error, debug};
 
     async fn setup_test_pod() -> PodaClient {
         let signer = PrivateKeySigner::from_str(PRIVATE_KEY).expect("Invalid private key");

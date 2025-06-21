@@ -1,8 +1,7 @@
 use pod::client::{PodaClient, PodaClientTrait};
-use types::{log::error, Address};
+use common::{log::{error, info}, types::Address};
 use anyhow::Result;
 use crate::{storage::ChunkStorageTrait, FileStorage};
-use types::log::info;
 
 pub async fn respond_to_active_challenges(file_storage: &FileStorage, pod: &PodaClient, my_address: Address) -> Result<()> {
     info!("🫡 Responding to active challenges");
@@ -15,16 +14,16 @@ pub async fn respond_to_active_challenges(file_storage: &FileStorage, pod: &Poda
         let commitment = challenge.commitment;
         let chunk_id = challenge.chunkId;
 
-        let chunk_with_proof = file_storage.retrieve(commitment, chunk_id).await?.unwrap_or_default();
-
-        if chunk_with_proof.0.data.is_empty() {
+        let chunk_with_proof = file_storage.retrieve(commitment, chunk_id).await?;
+        if chunk_with_proof.is_none() {
             error!("👺 Oooops, we lost a chunk {}, {}", commitment, chunk_id);
             error!("👺 We will not submit");
         }
+        let (chunk, proof) = chunk_with_proof.unwrap();
 
         info!("🙌 Responding to challenge: {:?}, {:?}, {:?}", challenge.challenge.challengeId, commitment, chunk_id);
 
-        let result = pod.respond_to_chunk_challenge(commitment, chunk_id, chunk_with_proof.0.data.clone().into(), chunk_with_proof.1.path.clone()).await;
+        let result = pod.respond_to_chunk_challenge(commitment, chunk_id, chunk.data.clone().into(), proof.path.clone()).await;
         if result.is_err() {
             error!("👺 Failed to respond to challenge: {:?}, {:?}, {:?}", challenge.challenge.challengeId, commitment, chunk_id);
             continue;

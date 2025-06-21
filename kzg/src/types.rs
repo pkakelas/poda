@@ -2,7 +2,7 @@ use std::io::Cursor;
 use ark_bls12_381::G1Projective as G1;
 use ark_serialize::{CanonicalSerialize, CanonicalDeserialize};
 use serde::{Serialize, Deserialize};
-use types::Bytes;
+use common::types::Bytes;
 
 // BLS12-381 G1 compressed point size in bytes
 pub const G1_COMPRESSED_SIZE: usize = 48;

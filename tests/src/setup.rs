@@ -14,7 +14,10 @@ pub mod setup {
         Provider,
         U256
     };
-    use types::constants::ONE_ETH;
+    use common::{
+        constants::ONE_ETH,
+        log::{info, error, init_logging}
+    };
     use std::{
         net::TcpListener,
         str::FromStr,
@@ -24,7 +27,6 @@ pub mod setup {
     use storage_provider::{FileStorage};
     use tempfile::TempDir;
     use tokio::{sync::oneshot, time::sleep};
-    use types::log::{info, error};
 
     pub struct ServerHandle {
         _temp_dir: Option<TempDir>,
@@ -71,7 +73,7 @@ pub mod setup {
     #[cfg(test)]
     pub async fn setup_pod(n_storage_providers: usize, rpc_url: &str, with_challenger: bool) -> Setup {
         INIT.call_once(|| {
-            types::log::init_logging();
+            init_logging();
         });
 
         let faucet = PrivateKeySigner::from_str(FAUCET_PRIVATE_KEY).expect("Invalid private key");

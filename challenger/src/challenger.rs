@@ -2,8 +2,10 @@ use std::time::Duration;
 use pod::{client::{PodaClient, PodaClientTrait}, Address, FixedBytes};
 use anyhow::Result;
 use rand::{random_range};
-use types::constants::TOTAL_SHARDS;
-use types::log::{info, warn};
+use common::{
+    constants::TOTAL_SHARDS,
+    log::{info, warn}
+};
 
 pub struct Challenger {
     pub pod: PodaClient,

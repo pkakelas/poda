@@ -8,7 +8,7 @@ mod tests {
     use merkle_tree::MerkleProof;
     use pod::{client::{PodaClient, PodaClientTrait}, Address, FixedBytes, PrivateKeySigner, U256};
     use reqwest::Response;
-    use types::{constants::{ONE_ETH, REQUIRED_SHARDS, TOTAL_SHARDS}, log::info, Chunk};
+    use common::{constants::{ONE_ETH, REQUIRED_SHARDS, TOTAL_SHARDS}, log::info, types::Chunk};
     use kzg::types::{KzgCommitment, KzgProof};
     use anyhow::Result;
     use setup::setup::{setup_pod, Setup};

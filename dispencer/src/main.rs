@@ -6,7 +6,7 @@ use http::start_server;
 use dispenser::Dispenser;
 use pod::{client::{PodaClient}, Address, PrivateKeySigner};
 use dotenv::dotenv;
-use types::log::{init_logging, info};
+use common::log::{init_logging, info};
 
 fn load_config() -> (String, Address, u16, String) {
     dotenv().ok();

@@ -3,7 +3,7 @@ mod challenger;
 use std::{str::FromStr, time::Duration};
 use dotenv::dotenv;
 use pod::{client::PodaClient, Address, PrivateKeySigner};
-use types::log::init_logging;
+use common::log::init_logging;
 
 use crate::challenger::Challenger;
 

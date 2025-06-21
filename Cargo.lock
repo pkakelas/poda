@@ -1394,11 +1394,11 @@ name = "challenger"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "common",
  "dotenv",
  "pod",
  "rand 0.9.1",
  "tokio",
- "types",
 ]
 
 [[package]]
@@ -1437,6 +1437,18 @@ checksum = "117725a109d387c937a1533ce01b450cbde6b88abceea8473c4d7a85853cda3c"
 dependencies = [
  "lazy_static",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "common"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "hex",
+ "serde",
+ "serde_json",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -1789,6 +1801,7 @@ name = "dispencer"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "common",
  "dotenv",
  "kzg",
  "merkle_tree",
@@ -1801,7 +1814,6 @@ dependencies = [
  "sha3 0.10.8",
  "storage-provider",
  "tokio",
- "types",
  "warp",
 ]
 
@@ -2877,6 +2889,7 @@ dependencies = [
  "ark-ff 0.5.0",
  "ark-serialize 0.5.0",
  "ark-std 0.5.0",
+ "common",
  "hex",
  "lazy_static",
  "pod",
@@ -2884,7 +2897,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha3 0.10.8",
- "types",
 ]
 
 [[package]]
@@ -2982,13 +2994,13 @@ name = "merkle_tree"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "common",
  "eth_merkle_tree",
  "hex",
  "itertools 0.14.0",
  "rand 0.9.1",
  "serde",
  "sha3 0.10.8",
- "types",
 ]
 
 [[package]]
@@ -3440,11 +3452,11 @@ dependencies = [
  "alloy",
  "anyhow",
  "async-trait",
+ "common",
  "hex",
  "mockall",
  "pod-sdk",
  "tokio",
- "types",
 ]
 
 [[package]]
@@ -4454,6 +4466,7 @@ dependencies = [
  "alloy-sol-types 1.2.0",
  "anyhow",
  "async-trait",
+ "common",
  "dotenv",
  "hex",
  "kzg",
@@ -4467,7 +4480,6 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-test",
- "types",
  "warp",
 ]
 
@@ -4655,6 +4667,7 @@ dependencies = [
  "ark-bls12-381",
  "ark-std 0.5.0",
  "challenger",
+ "common",
  "dispencer",
  "kzg",
  "merkle_tree",
@@ -4668,7 +4681,6 @@ dependencies = [
  "storage-provider",
  "tempfile",
  "tokio",
- "types",
 ]
 
 [[package]]
@@ -5097,18 +5109,6 @@ name = "typenum"
 version = "1.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1dccffe3ce07af9386bfd29e80c0ab1a8205a2fc34e4bcd40364df902cfa8f3f"
-
-[[package]]
-name = "types"
-version = "0.1.0"
-dependencies = [
- "alloy",
- "hex",
- "serde",
- "serde_json",
- "tracing",
- "tracing-subscriber",
-]
 
 [[package]]
 name = "ucd-trie"

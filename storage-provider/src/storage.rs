@@ -1,7 +1,7 @@
 use alloy::primitives::FixedBytes;
 use anyhow::Result;
 use merkle_tree::MerkleProof;
-use types::Chunk;
+use common::types::Chunk;
 
 #[async_trait::async_trait]
 pub trait ChunkStorageTrait {

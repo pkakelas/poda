@@ -6,7 +6,7 @@ use ark_bls12_381::{Bls12_381, Fr, FrConfig, G1Projective as G1, G2Projective as
 use ark_ec::PrimeGroup;
 use ark_ff::AdditiveGroup;
 use ark_ff::{Fp, MontBackend};
-use ::types::{Chunk, constants::TOTAL_SHARDS};
+use common::{types::Chunk, constants::TOTAL_SHARDS};
 use types::{KzgCommitment, KzgProof};
 use kzg::KZG;
 use utils::interpolate;
@@ -230,7 +230,7 @@ mod tests {
 
     #[test]
     fn test_kzg_manager_with_total_shards() {
-        use ::types::constants::TOTAL_SHARDS;
+        use common::constants::TOTAL_SHARDS;
         
         // Create chunks for the actual TOTAL_SHARDS
         let mut chunks = Vec::new();

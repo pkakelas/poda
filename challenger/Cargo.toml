@@ -9,4 +9,4 @@ dotenv = "0.15.0"
 pod = { version = "0.1.0", path = "../pod" }
 rand = "0.9.1"
 tokio = { version = "1.45.0", features = ["rt"] }
-types = { version = "0.1.0", path = "../types" }
+common = { version = "0.1.0", path = "../common" }

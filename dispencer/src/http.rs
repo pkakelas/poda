@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use anyhow::Result;
 use crate::dispenser::Dispenser;
 use pod::client::PodaClientTrait;
-use types::log::info;
+use common::log::info;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SubmitDataRequest {

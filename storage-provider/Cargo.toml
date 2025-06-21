@@ -17,7 +17,7 @@ rand = "0.9.1"
 pod = { path = "../pod" }
 sha3 = "0.10.8"
 dotenv = "0.15.0"
-types = { path = "../types" }
+common = { path = "../common" }
 kzg = { version = "0.1.0", path = "../kzg" }
 merkle_tree = { version = "0.1.0", path = "../merkle_tree" }
 

@@ -14,7 +14,7 @@ sha3 = "0.10.8"
 pod = { path = "../pod" }
 storage-provider = { path = "../storage-provider" }
 kzg = { path = "../kzg" }
-types = { path = "../types" }
+common = { path = "../common" }
 warp = "0.3.7"
 dotenv = "0.15.0"
 merkle_tree = { version = "0.1.0", path = "../merkle_tree" }

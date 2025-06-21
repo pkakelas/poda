@@ -4,12 +4,10 @@ use anyhow::Result;
 use merkle_tree::{gen_merkle_tree, MerkleProof};
 use pod::{client::{PodaClientTrait, ProviderInfo}, FixedBytes, U256};
 use storage_provider::http::{BatchRetrieveRequest, BatchRetrieveResponse, BatchStoreRequest};
-use types::{constants::{REQUIRED_SHARDS, TOTAL_SHARDS}, Chunk};
+use common::{constants::{REQUIRED_SHARDS, TOTAL_SHARDS}, log::{debug, error, info, warn}, types::Chunk};
 use reed_solomon_erasure::ReedSolomon;
 use sha3::{Digest, Keccak256};
 use kzg::{kzg_commit, kzg_multi_prove, types::KzgProof};
-use types::log::{debug, error, info, warn};
-
 type ChunkAssignment = HashMap<String, Vec<Chunk>>;
 
 pub struct Dispenser<T: PodaClientTrait> {
@@ -297,7 +295,7 @@ impl<T: PodaClientTrait> Dispenser<T> {
 mod tests {
     use super::*;
     use pod::{client::MockPodaClientTrait, Address, FixedBytes};
-    use types::constants::REQUIRED_SHARDS;
+    use common::constants::REQUIRED_SHARDS;
 
     async fn create_test_dispenser() -> Dispenser<MockPodaClientTrait> {
         let pod = MockPodaClientTrait::new();

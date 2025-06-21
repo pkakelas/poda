@@ -1,4 +1,4 @@
-use types::SolValue;
+use common::types::SolValue;
 use anyhow::{Result, bail};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -294,7 +294,7 @@ impl MerkleTree {
 #[cfg(test)]
 mod test {
     use super::*;
-    use types::SolValue;
+    use common::types::SolValue;
 
     #[test]
     pub fn test_standard_tree_proof() {

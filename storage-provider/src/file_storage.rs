@@ -7,7 +7,7 @@ use pod::FixedBytes;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use async_trait::async_trait;
-use types::Chunk;
+use common::types::Chunk;
 use crate::storage::ChunkStorageTrait;
 
 pub struct FileStorage {
