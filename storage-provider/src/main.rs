@@ -8,7 +8,7 @@ use std::{str::FromStr, sync::Arc, time::Duration};
 use pod::{client::PodaClient, PrivateKeySigner, Address};
 use file_storage::FileStorage;
 use dotenv::dotenv;
-
+use types::log::{error, info};
 use crate::responder::respond_to_active_challenges;
 
 fn load_config() -> (String, Address, u16, String, u64) {
@@ -41,8 +41,8 @@ pub async fn main() {
     tokio::spawn(async move {
         loop {
             match respond_to_active_challenges(&storage, &pod, my_address).await {
-                Ok(()) => println!("Responding to active challenges succeeded"), 
-                Err(e) => eprintln!("Responding to active challenges failed {:?}", e)
+                Ok(()) => info!("Responding to active challenges succeeded"), 
+                Err(e) => error!("Responding to active challenges failed {:?}", e)
             }
 
             tokio::time::sleep(Duration::from_secs(responder_interval)).await;

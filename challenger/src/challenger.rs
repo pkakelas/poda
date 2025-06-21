@@ -3,6 +3,7 @@ use pod::{client::{PodaClient, PodaClientTrait}, Address, FixedBytes};
 use anyhow::Result;
 use rand::{random_range};
 use types::constants::TOTAL_SHARDS;
+use types::log::{info, warn};
 
 pub struct Challenger {
     pub pod: PodaClient,
@@ -47,20 +48,20 @@ impl Challenger {
             let provider_address = self.pod.get_chunk_owner(commitment, chunk_id).await?;
             let is_chunk_available = self.pod.is_chunk_available(commitment, chunk_id).await?;
             if !is_chunk_available {
-                println!("Chunk not available: {:?}", (commitment, chunk_id));
+                warn!("Chunk not available: {:?}", (commitment, chunk_id));
                 continue
             }
 
             let res =  self.pod.issue_chunk_challenge(commitment, chunk_id, provider_address).await;
             if !res.is_ok() {
-                eprintln!("Issuing chunk challenge failed. It's probably already issued");
+                warn!("Issuing chunk challenge failed. It's probably already issued");
                 continue
             }
 
             let challenge = res.unwrap();
 
             challenges.push((challenge.challenge.challengeId, commitment, chunk_id, provider_address));
-            println!("Challenged provider {:?} with commitment {:?} and chunk {:?}", provider_address, commitment, chunk_id);
+            info!("Challenged provider {:?} with commitment {:?} and chunk {:?}", provider_address, commitment, chunk_id);
         }
 
         Ok(challenges)
@@ -74,14 +75,14 @@ impl Challenger {
             let chunk_id = challenge.chunkId;
             let provider_address = challenge.challenge.challenger;
 
-            println!("Slashing provider {:?} with expired challenge {:?}", provider_address, challenge);
+            warn!("Slashing provider {:?} with expired challenge {:?}", provider_address, challenge);
             let slashed = self.pod.slash_expired_challenge(commitment, chunk_id, provider_address).await;
             if slashed.is_err() {
-                eprintln!("Slashing expired challenge failed. It's probably already slashed");
+                warn!("Slashing expired challenge failed. It's probably already slashed");
                 continue
             }
 
-            println!("Slashed provider {:?} with expired challenge {:?}", provider_address, challenge);
+            info!("Slashed provider {:?} with expired challenge {:?}", provider_address, challenge);
         }
 
         Ok(())

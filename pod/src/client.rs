@@ -7,6 +7,7 @@ use anyhow::{Result};
 use pod_sdk::{network::PodNetwork, provider::{PodProvider, PodProviderBuilder}, Address, EthereumWallet, PrivateKeySigner, Provider, Bytes};
 use crate::client::Poda::PodaInstance;
 pub use Poda::{ProviderInfo, Commitment, ChallengeInfo};
+use types::log::info;
 
 sol!(
     #[sol(rpc)]
@@ -288,10 +289,10 @@ impl PodaClientTrait for PodaClient {
         loop {
             let (commitment_info, is_recoverable) = self.get_commitment_info(commitment).await?;
             if is_recoverable {
-                println!("Commitment is recoverable with {}/{} chunks", commitment_info.availableChunks, commitment_info.totalChunks);
+                info!("Commitment is recoverable with {}/{} chunks", commitment_info.availableChunks, commitment_info.totalChunks);
                 return Ok(());
             }
-            println!("Waiting for commitment to be recoverable... {}/{} chunks", commitment_info.availableChunks, commitment_info.totalChunks);
+            info!("Waiting for commitment to be recoverable... {}/{} chunks", commitment_info.availableChunks, commitment_info.totalChunks);
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
     }
@@ -346,6 +347,7 @@ mod tests {
     const RPC_URL: &str = "http://localhost:8545";
     const CONTRACT_ADDRESS: &str = "0x0EaD13CEadcE8880F5167bFDA20C7F1A7F18217d";
     const PRIVATE_KEY: &str = "6df79891f22b0f3c9e9fb53b966a8861fd6fef69f99772c5c4dbcf303f10d901";
+    use types::log::{info, error, debug};
 
     async fn setup_test_pod() -> PodaClient {
         let signer = PrivateKeySigner::from_str(PRIVATE_KEY).expect("Invalid private key");
@@ -353,7 +355,7 @@ mod tests {
         
         let pod = PodaClient::new(signer, RPC_URL.to_string(), address).await;
 
-        println!("Pod address: {:?}", pod.address);
+        info!("Pod address: {:?}", pod.address);
         
         // Register provider and wait for confirmation
         pod.register_provider("test_provider_2".to_string(), "http://localhost:8000".to_string(), ONE_ETH / 10)
@@ -493,18 +495,18 @@ mod tests {
         let address = pod_sdk::Address::from_str(CONTRACT_ADDRESS).expect("Invalid contract address");
         
         let pod = PodaClient::new(signer, RPC_URL.to_string(), address).await;
-        println!("Pod address: {:?}", pod.address);
+        info!("Pod address: {:?}", pod.address);
         
         // Try to check if the contract exists by calling a simple view function
         // Let's try to get the MAX_CHUNKS constant first
         match pod.contract.MAX_CHUNKS().call().await {
             Ok(max_chunks) => {
-                println!("Contract is accessible. MAX_CHUNKS: {}", max_chunks._0);
+                info!("Contract is accessible. MAX_CHUNKS: {}", max_chunks._0);
             }
             Err(e) => {
-                println!("Error accessing MAX_CHUNKS: {:?}", e);
+                error!("Error accessing MAX_CHUNKS: {:?}", e);
                 // Try a different approach - check if the contract has any functions
-                println!("Contract may not have the expected interface");
+                error!("Contract may not have the expected interface");
             }
         }
     }
@@ -515,35 +517,34 @@ mod tests {
         let address = pod_sdk::Address::from_str(CONTRACT_ADDRESS).expect("Invalid contract address");
         
         let pod = PodaClient::new(signer, RPC_URL.to_string(), address).await;
-        println!("Pod address: {:?}", pod.address);
         
         // Check if the provider is already registered
         let provider_address = pod.address;
         match pod.get_provider_info(provider_address).await {
             Ok(info) => {
-                println!("Provider is already registered:");
-                println!("  Name: {}", info.name);
-                println!("  URL: {}", info.url);
-                println!("  Registered at: {}", info.registeredAt);
-                println!("  Reputation: {}", info.challengeCount);
-                println!("  Active: {}", info.active);
+                debug!("Provider is already registered:");
+                debug!("  Name: {}", info.name);
+                debug!("  URL: {}", info.url);
+                debug!("  Registered at: {}", info.registeredAt);
+                debug!("  Reputation: {}", info.challengeCount);
+                debug!("  Active: {}", info.active);
                 
                 // If the provider is not active, try to register again with a different name
                 if !info.active {
-                    println!("Provider is inactive, trying to register with a different name...");
+                    debug!("Provider is inactive, trying to register with a different name...");
                     match pod.register_provider("test_provider_active".to_string(), "http://localhost:8001".to_string(), ONE_ETH / 10).await {
-                        Ok(_) => println!("Successfully registered provider with new name"),
-                        Err(e) => println!("Failed to register provider: {:?}", e),
+                        Ok(_) => info!("Successfully registered provider with new name"),
+                        Err(e) => error!("Failed to register provider: {:?}", e),
                     }
                 }
             }
             Err(e) => {
-                println!("Provider not registered or error: {:?}", e);
+                error!("Provider not registered or error: {:?}", e);
                 // Try to register the provider
-                println!("Attempting to register provider...");
+                info!("Attempting to register provider...");
                 match pod.register_provider("test_provider_3".to_string(), "http://localhost:8000".to_string(), ONE_ETH / 10).await {
-                    Ok(_) => println!("Successfully registered provider"),
-                    Err(e) => println!("Failed to register provider: {:?}", e),
+                    Ok(_) => info!("Successfully registered provider"),
+                    Err(e) => error!("Failed to register provider: {:?}", e),
                 }
             }
         }

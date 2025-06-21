@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use pod::client::{PodaClient, PodaClientTrait};
 use crate::storage::ChunkStorageTrait;
 use kzg::types::KzgProof;
-use types::Chunk;
+use types::{log::{info, debug, error}, Chunk};
 use hex;
 
 #[derive(Debug, Deserialize)]
@@ -146,7 +146,7 @@ pub async fn start_server<T: ChunkStorageTrait + Send + Sync + 'static>(
         .with(warp::cors().allow_any_origin());
 
 
-    println!("🦀 Rust Storage Provider API starting on port {}", port);
+    info!("🦀 Rust Storage Provider API starting on port {}", port);
     warp::serve(routes).run(([127, 0, 0, 1], port)).await;
 }
 
@@ -174,7 +174,7 @@ async fn handle_store<T: ChunkStorageTrait>(
     }
 
     let is_valid = merkle_tree::verify_proof(request.commitment, &request.chunk, request.merkle_proof.clone());
-    println!("[STORAGE_PROVIDER] Merkle proof verification result for chunk {:?}: {:?}", request.chunk.index, is_valid);
+    debug!("Merkle proof verification result for chunk {:?}: {:?}", request.chunk.index, is_valid);
     if !is_valid {
         return Ok(warp::reply::with_status(
             warp::reply::json(&StoreResponse {
@@ -199,7 +199,7 @@ async fn handle_store<T: ChunkStorageTrait>(
 
     match storage.store(request.commitment, &request.chunk, &request.merkle_proof).await {
         Ok(_) => {
-            println!("Chunk stored successfully");
+            debug!("Chunk stored successfully");
 
             let res = pod.submit_chunk_attestations(request.commitment, vec![request.chunk.index]).await;
             if res.is_err() {
@@ -222,7 +222,7 @@ async fn handle_store<T: ChunkStorageTrait>(
         }
 
         Err(e) => {
-            println!("Error storing chunk: {:?}", e);
+            error!("Error storing chunk: {:?}", e);
             Ok(warp::reply::with_status(
                 warp::reply::json(&StoreResponse {
                     success: false,
@@ -239,7 +239,7 @@ async fn handle_batch_retrieve<T: ChunkStorageTrait>(
     storage: Arc<T>,
     _: Arc<PodaClient>,
 ) -> Result<impl warp::Reply, Infallible> {
-    println!("Retrieving chunks: {:?}", request);
+    debug!("Retrieving chunks: {:?}", request);
     let mut chunks = Vec::new();
     let mut proofs = Vec::new();
     let mut errors = Vec::new();
@@ -423,7 +423,7 @@ async fn handle_batch_store<T: ChunkStorageTrait>(
     if commitment.is_err() {
         let err = commitment.err();
 
-        println!("[STORAGE_PROVIDER] Failed to get commitment info: {:?}", err);
+        error!("Failed to get commitment info: {:?}", err);
         return Ok(warp::reply::with_status(
             warp::reply::json(&StoreResponse {
                 success: false,
@@ -435,7 +435,7 @@ async fn handle_batch_store<T: ChunkStorageTrait>(
 
     for (chunk, merkle_proof) in request.chunks.iter().zip(request.merkle_proofs.iter()) {
         let is_valid = merkle_tree::verify_proof(request.commitment, &chunk, merkle_proof.clone());
-        println!("[STORAGE_PROVIDER] Merkle proof verification result for chunk {:?}: {:?}", chunk.index, is_valid);
+        debug!("Merkle proof verification result for chunk {:?}: {:?}", chunk.index, is_valid);
         if !is_valid {
             return Ok(warp::reply::with_status(
                 warp::reply::json(&StoreResponse {
@@ -448,11 +448,11 @@ async fn handle_batch_store<T: ChunkStorageTrait>(
     }
 
     let (commitment_info, _) = commitment.unwrap();
-    println!("[STORAGE_PROVIDER] Got commitment info: {:?}", commitment_info);
+    info!("Got commitment info: {:?}", commitment_info);
     let chunk_indices = request.chunks.iter().map(|c| c.index as usize).collect::<Vec<_>>();
-    println!("[STORAGE_PROVIDER] Verifying KZG proof for chunks: {:?}", chunk_indices);
+    debug!("Verifying KZG proof for chunks: {:?}", chunk_indices);
     let is_valid = kzg_multi_verify(&request.chunks, chunk_indices.as_slice(), commitment_info.kzgCommitment.try_into().unwrap(), request.kzg_proof);
-    println!("[STORAGE_PROVIDER] KZG proof verification result: {:?}", is_valid);
+    info!("KZG proof verification result: {:?}", is_valid);
 
     if !is_valid {
         return Ok(warp::reply::with_status(
@@ -481,7 +481,7 @@ async fn handle_batch_store<T: ChunkStorageTrait>(
     }
 
     let indices = request.chunks.iter().map(|c| c.index as u16).collect::<Vec<_>>();
-    println!("Submitting chunk attestation for indices: {:?}", indices);
+    info!("Submitting chunk attestation for indices: {:?}", indices);
     let res = pod.submit_chunk_attestations(request.commitment, indices).await;
     if res.is_err() {
         return Ok(warp::reply::with_status(

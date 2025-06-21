@@ -3,11 +3,13 @@ mod challenger;
 use std::{str::FromStr, time::Duration};
 use dotenv::dotenv;
 use pod::{client::PodaClient, Address, PrivateKeySigner};
+use types::log::init_logging;
 
 use crate::challenger::Challenger;
 
 fn load_config() -> (String, Address, String, usize, u64) {
     dotenv().ok();
+    init_logging();
 
     let rpc_url = std::env::var("RPC_URL").unwrap();
     let poda_address = std::env::var("PODA_ADDRESS").unwrap().parse::<Address>().unwrap();

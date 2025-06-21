@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use anyhow::Result;
 use crate::dispenser::Dispenser;
 use pod::client::PodaClientTrait;
+use types::log::info;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SubmitDataRequest {
@@ -67,7 +68,7 @@ pub async fn start_server<T: PodaClientTrait + Send + Sync + 'static>(
         .or(health_check)
         .with(warp::cors().allow_any_origin());
 
-    println!("🦀 Rust Dispenser API starting on port {}", port);
+    info!("🦀 Rust Dispenser API starting on port {}", port);
     warp::serve(routes).run(([127, 0, 0, 1], port)).await;
 }
 

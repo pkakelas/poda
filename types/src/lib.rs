@@ -1,4 +1,5 @@
 pub mod constants;
+pub mod log;
 
 use serde::{Serialize, Deserialize};
 pub use alloy::primitives::{FixedBytes, Bytes, B256, Address, keccak256, U256};

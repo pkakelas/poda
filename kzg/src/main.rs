@@ -1,3 +1,5 @@
+use types::log::info;
+
 fn main() {
-    print!("Hey yo");
+    info!("Hey yo");
 }

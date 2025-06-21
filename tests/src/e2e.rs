@@ -8,7 +8,7 @@ mod tests {
     use merkle_tree::MerkleProof;
     use pod::{client::{PodaClient, PodaClientTrait}, Address, FixedBytes, PrivateKeySigner, U256};
     use reqwest::Response;
-    use types::{constants::{ONE_ETH, REQUIRED_SHARDS, TOTAL_SHARDS}, Chunk};
+    use types::{constants::{ONE_ETH, REQUIRED_SHARDS, TOTAL_SHARDS}, log::info, Chunk};
     use kzg::types::{KzgCommitment, KzgProof};
     use anyhow::Result;
     use setup::setup::{setup_pod, Setup};
@@ -283,7 +283,7 @@ mod tests {
             let (challenge_id, commitment, chunk_id, provider) = challenge;
             let challenge_info = poda_client.get_chunk_challenge(commitment, chunk_id, provider).await.unwrap();
 
-            println!("Challenge info: {:?}", challenge_info);
+            info!("Challenge info: {:?}", challenge_info);
             assert_eq!(challenge_info.challenge.challengeId, challenge_id);
 
             let provider = storage_server_handles.iter().find(|p| p.owner_address == provider).unwrap();
@@ -320,7 +320,7 @@ mod tests {
         let chunk_id = assigments_of_provider[random_index];
 
         let challenge = challenger.pod.issue_chunk_challenge(result.commitment, chunk_id, provider.owner_address).await.unwrap();
-        println!("Challenge issued: {:?}", challenge);
+        info!("Challenge issued: {:?}", challenge);
 
         let chunk_with_proof = provider.storage.retrieve(result.commitment, chunk_id).await.unwrap().unwrap();
 

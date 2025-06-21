@@ -8,6 +8,7 @@ use types::{constants::{REQUIRED_SHARDS, TOTAL_SHARDS}, Chunk};
 use reed_solomon_erasure::ReedSolomon;
 use sha3::{Digest, Keccak256};
 use kzg::{kzg_commit, kzg_multi_prove, types::KzgProof};
+use types::log::{debug, error, info, warn};
 
 type ChunkAssignment = HashMap<String, Vec<Chunk>>;
 
@@ -17,6 +18,7 @@ pub struct Dispenser<T: PodaClientTrait> {
 
 impl<T: PodaClientTrait> Dispenser<T> {
     pub fn new(pod: T) -> Self {
+        info!("Creating dispenser");
         Self { pod }
     }
 
@@ -40,7 +42,7 @@ impl<T: PodaClientTrait> Dispenser<T> {
             let provider = storage_providers.iter().find(|p| p.name == *provider_id).unwrap();
             let result = self.batch_submit_to_provider(provider_chunks.clone(), merkle_tree.root(), provider, kzg_proof, merkle_proofs).await;
             if result.is_err() {
-                println!("[DISPENCER] Failed to submit chunks to provider {}: {:?}", provider_id, result.err());
+                warn!("Failed to submit chunks to provider {}: {:?}", provider_id, result.err());
                 continue;
             }
             promised_chunks += chunk_ids.len();
@@ -67,10 +69,10 @@ impl<T: PodaClientTrait> Dispenser<T> {
         let mut chunks = [NO_CHUNK; TOTAL_SHARDS];
         for provider in storage_providers {
             let chunk_ids = self.pod.get_provider_chunks(commitment, provider.addr).await?;
-            println!("Chunk ids for provider {}: {:?}", provider.name, chunk_ids);
+            debug!("Chunk ids for provider {}: {:?}", provider.name, chunk_ids);
             let provider_chunks = self.batch_retrieve_from_provider(commitment, &chunk_ids, &provider).await;
             if provider_chunks.is_err() {
-                println!("Failed to retrieve chunks from provider {}: {:?}", provider.name, provider_chunks.err());
+                warn!("Failed to retrieve chunks from provider {}: {:?}", provider.name, provider_chunks.err());
                 for chunk_id in chunk_ids {
                     chunks[chunk_id as usize] = NO_CHUNK.clone();
                 }
@@ -84,20 +86,20 @@ impl<T: PodaClientTrait> Dispenser<T> {
         }
 
         let retrieved_chunks = chunks.iter().filter(|c| c.is_some()).count();
-        println!("Retrieved chunks: {}", retrieved_chunks);
+        debug!("Retrieved chunks: {}", retrieved_chunks);
 
         if retrieved_chunks < REQUIRED_SHARDS {
-            println!("Not enough chunks retrieved to reconstruct data");
+            error!("Not enough chunks retrieved to reconstruct data");
             return Err(anyhow::anyhow!("Not enough chunks retrieved to reconstruct data"));
         }
 
         // reality check
         for (index, chunk) in chunks.iter().enumerate() {
             if chunk.is_none() {
-                println!("Chunk at index {} is none", index);
+                warn!("Chunk at index {} is none", index);
             }
             if chunk.is_some() {
-                println!("Chunk at index {} is some", index);
+                debug!("Chunk at index {} is some", index);
             }
         }
 
@@ -134,9 +136,9 @@ impl<T: PodaClientTrait> Dispenser<T> {
             .map(|chunk| chunk.as_ref().map(|c| c.data.clone()))
             .collect();
 
-        // println!("Before reconstruction - shards: {:?}", shards);
+        debug!("Before reconstruction - shards: {:?}", shards);
         r.reconstruct(&mut shards).unwrap();
-        // println!("After reconstruction - shards: {:?}", shards);
+        debug!("After reconstruction - shards: {:?}", shards);
 
         // Get the reconstructed data chunks (first required_shards are the data shards)
         let mut reconstructed_chunks: Vec<Chunk> = Vec::new();

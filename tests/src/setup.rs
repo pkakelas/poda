@@ -24,6 +24,7 @@ pub mod setup {
     use storage_provider::{FileStorage};
     use tempfile::TempDir;
     use tokio::{sync::oneshot, time::sleep};
+    use types::log::{info, error};
 
     pub struct ServerHandle {
         _temp_dir: Option<TempDir>,
@@ -64,20 +65,25 @@ pub mod setup {
     const FAUCET_PRIVATE_KEY: &str = "6df79891f22b0f3c9e9fb53b966a8861fd6fef69f99772c5c4dbcf303f10d901";
     const MIN_STAKE: u128 = ONE_ETH / 100;
 
+    static INIT: std::sync::Once = std::sync::Once::new();
+
     // n_actors: Number of actors in setup. 1 will be dispencer, the rest will be storage providers
     #[cfg(test)]
     pub async fn setup_pod(n_storage_providers: usize, rpc_url: &str, with_challenger: bool) -> Setup {
-        println!("Setting up pod");
+        INIT.call_once(|| {
+            types::log::init_logging();
+        });
+
         let faucet = PrivateKeySigner::from_str(FAUCET_PRIVATE_KEY).expect("Invalid private key");
         let faucet_address = faucet.address();
         let faucet = get_provider_for_signer(faucet, rpc_url).await;
 
-        println!("Deploying poda contract");
+        info!("Deploying poda contract");
         let poda_address = PodaClient::deploy_poda(faucet.clone(), faucet_address, MIN_STAKE).await.unwrap();
-        println!("Deployed poda contract at: {:?}", poda_address);
+        info!("Deployed poda contract at: {:?}", poda_address);
 
         let actors = get_actors();
-        println!("Fauceting actors");
+        info!("Fauceting actors");
         faucet_if_needed(faucet, &actors).await;
 
         let mut clients: Vec<PodaClient> = Vec::new();
@@ -100,21 +106,21 @@ pub mod setup {
         
         for i in 2..n_storage_providers + 2 {
             let storage_provider = clients[i].clone();
-            println!("Starting storage provider server for provider: {:?}", storage_provider.signer.address());
+            info!("Starting storage provider server for provider: {:?}", storage_provider.signer.address());
             let name = format!("storage-provider-{}", i);
             let handle = start_new_storage_provider_server(&storage_provider, &name).await;
             let res = storage_provider.register_provider(name, handle.base_url.to_string(), ONE_ETH).await;
 
             if res.is_err() {
-                println!("Error registering provider. Probably already registered.");
+                error!("Error registering provider. Probably already registered.");
             }
 
-            println!("Storage provider url: {:?}", handle.base_url);
+            info!("Storage provider url: {:?}", handle.base_url);
             storage_server_handles.push(handle);
         }
 
         let providers = dispencer_client.get_providers().await.unwrap();
-        println!("Providers: {:?}", providers);
+        info!("Providers: {:?}", providers);
 
         Setup {
             poda_address,
@@ -151,7 +157,7 @@ pub mod setup {
             }
 
             let balance = faucet.get_balance(actor.address).await.unwrap();
-            println!("balance of actor {:?} is {:?}", actor.address, balance);
+            info!("balance of actor {:?} is {:?}", actor.address, balance);
         }
     }
 
