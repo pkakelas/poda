@@ -1,12 +1,9 @@
-#[allow(unused_imports, dead_code)]
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
     use crate::setup;
 
     use dispencer::{
-        dispenser::Dispenser, http::{RetrieveDataRequest, RetrieveDataResponse, SubmitDataRequest, SubmitDataResponse}
+        http::{RetrieveDataRequest, RetrieveDataResponse, SubmitDataRequest, SubmitDataResponse}
     };
     use merkle_tree::MerkleProof;
     use pod::{client::{PodaClient, PodaClientTrait}, Address, FixedBytes, PrivateKeySigner, U256};
@@ -14,7 +11,6 @@ mod tests {
     use types::{constants::{ONE_ETH, REQUIRED_SHARDS, TOTAL_SHARDS}, Chunk};
     use kzg::types::{KzgCommitment, KzgProof};
     use anyhow::Result;
-    use sha3::{Digest, Keccak256};
     use setup::setup::{setup_pod, Setup};
     use storage_provider::{responder::respond_to_active_challenges, storage::ChunkStorageTrait};
     use ark_bls12_381::G1Projective as G1;
@@ -344,8 +340,3 @@ mod tests {
         assert_eq!(provider_info.challengeSuccessCount, provider_info.challengeCount - 1);
     }
 }
-
-
-
-
-
