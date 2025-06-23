@@ -133,9 +133,13 @@ The core Pod smart contract that manages:
 
 To set up a local Poda development environment, follow these steps:
 
-#### 1. Build and Setup Infrastructure
+### 1.Build contracts
 
-First, build the project and run the setup command to generate configuration:
+First you need to build the Poda smart contract. Just go on `/contracts` and `forge build`.
+
+#### 2. Build and Setup Infrastructure
+
+Then, build the project and run the setup command to generate configuration:
 
 ```bash
 # Build the project
@@ -152,7 +156,7 @@ The setup command will:
 - Generate a `localnet.env` file in the root folder with all necessary configuration
 - Display the to-be network architecture with addresses and endpoints
 
-#### 2. Start Services with Docker
+#### 3. Start Services with Docker
 
 Start all services using docker-compose:
 
@@ -163,7 +167,7 @@ docker-compose --env-file localnet.env up -d
 
 **Note**: Make sure `localnet.env` exists in the root folder before running this command by running step 1.
 
-#### 3. Verify Setup
+#### 4. Verify Setup
 
 Check that all services are running:
 
