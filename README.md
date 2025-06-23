@@ -135,7 +135,7 @@ To set up a local Poda development environment, follow these steps:
 
 ### 1.Build contracts
 
-First you need to build the Poda smart contract. Just go on `/contracts` and `forge build`.
+First you need to build the Poda smart contract. Just go on `contracts/` and `forge build`.
 
 #### 2. Build and Setup Infrastructure
 
