@@ -150,7 +150,7 @@ pub async fn start_server<T: ChunkStorageTrait + Send + Sync + 'static>(
 
 
     info!("🦀 Rust Storage Provider API starting on port {}", port);
-    warp::serve(routes).run(([127, 0, 0, 1], port)).await;
+    warp::serve(routes).run(([0, 0, 0, 0], port)).await;
 }
 
 async fn handle_health_check() -> Result<impl warp::Reply, Infallible> {

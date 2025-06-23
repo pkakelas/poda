@@ -7,7 +7,7 @@ pub fn init_logging() {
             EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| {
                     // Show only workspace crates, hide external deps
-                    "dispencer=info,dispenser=info,storage_provider=info,challenger=info,kzg=info,merkle_tree=info,pod=info,types=info".into()
+                    "client=info,dispencer=info,dispenser=info,storage_provider=info,challenger=info,kzg=info,merkle_tree=info,pod=info,types=info".into()
                 })
         )
         .with(

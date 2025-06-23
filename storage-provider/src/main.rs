@@ -8,11 +8,12 @@ use std::{str::FromStr, sync::Arc, time::Duration};
 use pod::{client::PodaClient, PrivateKeySigner, Address};
 use file_storage::FileStorage;
 use dotenv::dotenv;
-use common::log::{error, info};
+use common::log::{error, info, init_logging};
 use crate::responder::respond_to_active_challenges;
 
 fn load_config() -> (String, Address, u16, String, u64) {
     dotenv().ok();
+    init_logging();
 
     let rpc_url = std::env::var("RPC_URL").unwrap();
     let poda_address = std::env::var("PODA_ADDRESS").unwrap().parse::<Address>().unwrap();

@@ -1,0 +1,103 @@
+version: '3.8'
+
+services:
+  dispenser:
+    build:
+      context: ..
+      dockerfile: client/Dockerfile
+      target: runtime
+    ports:
+      - "8000:3000"
+    env_file:
+      - .env
+    environment:
+      - RUST_LOG=info
+      - POD_RPC_URL=${RPC_URL}
+      - PODA_ADDRESS=${PODA_ADDRESS}
+      - DISPENCER_PRIVATE_KEY=${DISPENCER_PRIVATE_KEY}
+      - DISPENCER_PORT=3000
+    command: ["/app/dispencer"]
+    restart: unless-stopped
+
+  challenger:
+    build:
+      context: ..
+      dockerfile: client/Dockerfile
+      target: runtime
+    env_file:
+      - .env
+    environment:
+      - RUST_LOG=info
+      - RPC_URL=${RPC_URL}
+      - PODA_ADDRESS=${PODA_ADDRESS}
+      - CHALLENGER_PRIVATE_KEY=${CHALLENGER_PRIVATE_KEY}
+    command: ["/app/challenger"]
+    restart: unless-stopped
+
+  storage-provider-1:
+    build:
+      context: ..
+      dockerfile: client/Dockerfile
+      target: runtime
+    ports:
+      - "8001:3000"
+    env_file:
+      - .env
+    environment:
+      - RUST_LOG=info
+      - RPC_URL=${RPC_URL}
+      - PODA_ADDRESS=${PODA_ADDRESS}
+      - STORAGE_PROVIDER_PRIVATE_KEY=${STORAGE_PROVIDER_1_PRIVATE_KEY}
+      - STORAGE_PROVIDER_PORT=3000
+      - STORAGE_PROVIDER_RESPONDER_INTERVAL=20
+    command: ["/app/storage-provider"]
+    volumes:
+      - storage_data_1:/data
+    restart: unless-stopped
+
+  storage-provider-2:
+    build:
+      context: ..
+      dockerfile: client/Dockerfile
+      target: runtime
+    ports:
+      - "8002:3000"
+    env_file:
+      - .env
+    environment:
+      - RUST_LOG=info
+      - RPC_URL=${RPC_URL}
+      - PODA_ADDRESS=${PODA_ADDRESS}
+      - STORAGE_PROVIDER_PRIVATE_KEY=${STORAGE_PROVIDER_2_PRIVATE_KEY}
+      - STORAGE_PROVIDER_PORT=3000
+      - STORAGE_PROVIDER_RESPONDER_INTERVAL=20
+    command: ["/app/storage-provider"]
+    volumes:
+      - storage_data_2:/data
+    restart: unless-stopped
+
+  storage-provider-3:
+    build:
+      context: ..
+      dockerfile: client/Dockerfile
+      target: runtime
+    ports:
+      - "8003:3000"
+    env_file:
+      - .env
+    environment:
+      - RUST_LOG=info
+      - RPC_URL=${RPC_URL}
+      - PODA_ADDRESS=${PODA_ADDRESS}
+      - STORAGE_PROVIDER_PRIVATE_KEY=${STORAGE_PROVIDER_3_PRIVATE_KEY}
+      - STORAGE_PROVIDER_PORT=3000
+      - STORAGE_PROVIDER_RESPONDER_INTERVAL=20
+    command: ["/app/storage-provider"]
+    volumes:
+      - storage_data_3:/data
+    restart: unless-stopped
+
+volumes:
+  storage_data_1:
+  storage_data_2:
+  storage_data_3: 

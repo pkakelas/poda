@@ -1,0 +1,37 @@
+# Rust build artifacts
+target/
+**/target/
+
+# Git
+.git/
+.gitignore
+.gitmodules
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment files
+.env
+.env.local
+
+# Docker files (we don't need to copy these into the container)
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# Documentation
+README.md
+*.md
+
+# Test artifacts
+tests/target/ 

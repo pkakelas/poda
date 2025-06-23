@@ -1,4 +1,9 @@
-{
+use ark_bls12_381::G1Projective as G1;
+use ark_bls12_381::G2Projective as G2;
+use ark_serialize::CanonicalDeserialize;
+use serde::{Deserialize, Serialize};
+
+pub static ETH_CEREMONY: &str = r#"{
     "contributions": [
         {
             "numG1Powers": 4096,
@@ -4174,4 +4179,70 @@
             "potPubkey": "0x93e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb8"
         }
     ]
+}
+"#;
+
+
+#[derive(Serialize, Deserialize)]
+struct EthereumCeremony {
+    contributions: Vec<Contribution>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Contribution {
+    #[serde(rename = "numG1Powers")]
+    num_g1_powers: usize,
+    #[serde(rename = "numG2Powers")]
+    num_g2_powers: usize,
+    #[serde(rename = "powersOfTau")]
+    powers_of_tau: PowersOfTau,
+}
+
+#[derive(Serialize, Deserialize)]
+struct PowersOfTau {
+    #[serde(rename = "G1Powers")]
+    g1_powers: Vec<String>,
+    #[serde(rename = "G2Powers")]
+    g2_powers: Vec<String>,
+}
+
+/// Load Ethereum's trusted setup ceremony data and extract CRS powers
+pub fn load_ethereum_ceremony(degree: usize) -> Result<(Vec<G1>, Vec<G2>), Box<dyn std::error::Error>> {
+    let ceremony: EthereumCeremony = serde_json::from_str(ETH_CEREMONY)?;
+    
+    // Use the last contribution (most recent/final)
+    let final_contribution = ceremony.contributions.last()
+        .ok_or("No contributions found in ceremony file")?;
+    
+    // Extract G1 powers (we need degree + 1 powers)
+    let mut crs_g1 = Vec::new();
+    for i in 0..=degree {
+        if i >= final_contribution.powers_of_tau.g1_powers.len() {
+            return Err(format!("Ceremony only has {} G1 powers, but {} are needed", 
+                final_contribution.powers_of_tau.g1_powers.len(), degree + 1).into());
+        }
+        
+        let hex_str = &final_contribution.powers_of_tau.g1_powers[i];
+        let clean_hex = hex_str.trim_start_matches("0x");
+        let bytes = hex::decode(clean_hex)?;
+        let point = G1::deserialize_compressed(&bytes[..])?;
+        crs_g1.push(point);
+    }
+    
+    // Extract G2 powers (we need degree + 1 powers)
+    let mut crs_g2 = Vec::new();
+    for i in 0..=degree {
+        if i >= final_contribution.powers_of_tau.g2_powers.len() {
+            return Err(format!("Ceremony only has {} G2 powers, but {} are needed", 
+                final_contribution.powers_of_tau.g2_powers.len(), degree + 1).into());
+        }
+        
+        let hex_str = &final_contribution.powers_of_tau.g2_powers[i];
+        let clean_hex = hex_str.trim_start_matches("0x");
+        let bytes = hex::decode(clean_hex)?;
+        let point = G2::deserialize_compressed(&bytes[..])?;
+        crs_g2.push(point);
+    }
+    
+    Ok((crs_g1, crs_g2))
 }

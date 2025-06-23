@@ -36,7 +36,6 @@ contract Poda {
         bytes32 challengeId;
         address challenger;
         uint32 issuedAt;
-        bool resolved;
     }
     
     address public owner;
@@ -323,8 +322,7 @@ contract Poda {
             challengeId: challengeId,
             challenger: msg.sender,
             // TODO: Check with pod team if this is feasible
-            issuedAt: uint32(block.timestamp), 
-            resolved: false
+            issuedAt: uint32(block.timestamp)
         });
 
         providers[provider].challengeCount++;
@@ -430,7 +428,7 @@ contract Poda {
         address provider
     ) internal view returns (bool) {
         ChunkChallenge memory challenge = activeChunkChallenges[commitment][chunkId][provider];
-        return challenge.challengeId != bytes32(0) && !challenge.resolved && challenge.issuedAt + CHALLENGE_PERIOD > block.timestamp;
+        return challenge.challengeId != bytes32(0) && challenge.issuedAt + CHALLENGE_PERIOD > block.timestamp;
     }
 
     function respondToChunkChallenge(
@@ -441,7 +439,6 @@ contract Poda {
     ) external onlyRegisteredProvider {
         ChunkChallenge storage challenge = activeChunkChallenges[commitment][chunkId][msg.sender];
         require(challenge.challengeId != bytes32(0), "No active challenge");
-        require(!challenge.resolved, "Challenge already resolved");
         require(proof.length > 0, "Invalid proof");
         require(activeChunkChallenges[commitment][chunkId][msg.sender].issuedAt + CHALLENGE_PERIOD > block.timestamp, "Challenge expired");
 
@@ -452,7 +449,7 @@ contract Poda {
             slashProviderChunk(challenge, commitment, chunkId, msg.sender);
         }
 
-        activeChunkChallenges[commitment][chunkId][msg.sender].resolved = true;
+        delete activeChunkChallenges[commitment][chunkId][msg.sender];
     }
     
     function verifyChunkProof(
@@ -502,7 +499,7 @@ contract Poda {
     ) public view returns (bool expired) {
         ChunkChallenge memory challenge = activeChunkChallenges[commitment][chunkId][provider];
         
-        if (challenge.challengeId == bytes32(0) || challenge.resolved) {
+        if (challenge.challengeId == bytes32(0)) {
             return false;
         }
         
@@ -516,13 +513,12 @@ contract Poda {
     ) external {
         ChunkChallenge storage challenge = activeChunkChallenges[commitment][chunkId][provider];
         require(challenge.challengeId != bytes32(0), "No active challenge");
-        require(!challenge.resolved, "Challenge already resolved");
         require(block.timestamp > challenge.issuedAt + CHALLENGE_PERIOD, "Challenge not expired yet");
         
         slashProviderChunk(challenge, commitment, chunkId, provider);
         
-        activeChunkChallenges[commitment][chunkId][provider].resolved = true;
-        
+        delete activeChunkChallenges[commitment][chunkId][provider];
+
         payable(msg.sender).transfer(CHALLENGE_PENALTY / 10); // 10% bounty
     }
 

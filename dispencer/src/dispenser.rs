@@ -10,6 +10,8 @@ use sha3::{Digest, Keccak256};
 use kzg::{kzg_commit, kzg_multi_prove, types::KzgProof};
 type ChunkAssignment = HashMap<String, Vec<Chunk>>;
 
+const MIN_DATA_SIZE: usize = 16;
+
 pub struct Dispenser<T: PodaClientTrait> {
     pub pod: T,
 }
@@ -21,12 +23,20 @@ impl<T: PodaClientTrait> Dispenser<T> {
     }
 
     pub async fn submit_data(&self, data: &[u8]) -> Result<(FixedBytes<32>, ChunkAssignment)> {
+        if data.len() < MIN_DATA_SIZE {
+            return Err(anyhow::anyhow!("Data size is too small. Must be at least {} bytes", MIN_DATA_SIZE));
+        }
         let storage_providers = self.pod.get_providers().await?.iter().map(|p| p.clone()).collect::<Vec<_>>();
         let chunks = self.erasure_encode(data, REQUIRED_SHARDS, TOTAL_SHARDS);
         let merkle_tree = gen_merkle_tree(&chunks);
 
         let (kzg_commitment, _) = kzg_commit(&chunks);
-        self.pod.submit_commitment(merkle_tree.root(), data.len() as u32, TOTAL_SHARDS as u16, REQUIRED_SHARDS as u16, kzg_commitment.try_into().unwrap()).await?;
+        let res = self.pod.submit_commitment(merkle_tree.root(), data.len() as u32, TOTAL_SHARDS as u16, REQUIRED_SHARDS as u16, kzg_commitment.try_into().unwrap()).await;
+        if res.is_err() {
+            error!("Failed to submit commitment: {:?}", res.err());
+            return Err(anyhow::anyhow!("Failed to submit commitment. Submit already exists"));
+        }
+        info!("Submitted commitment");
 
         let assignments = self.assign_chunks(&chunks, &storage_providers)?;
 
@@ -56,6 +66,7 @@ impl<T: PodaClientTrait> Dispenser<T> {
     }
 
     pub async fn retrieve_data(&self, commitment: FixedBytes<32>) -> Result<Vec<u8>> {
+        info!("Retrieving data for commitment: {:?}", commitment);
         let (commitment_info, is_recoverable) = self.pod.get_commitment_info(commitment).await?;
         if !is_recoverable {
             return Err(anyhow::anyhow!("Commitment is not recoverable"));
@@ -84,7 +95,7 @@ impl<T: PodaClientTrait> Dispenser<T> {
         }
 
         let retrieved_chunks = chunks.iter().filter(|c| c.is_some()).count();
-        debug!("Retrieved chunks: {}", retrieved_chunks);
+        info!("Retrieved {} chunks out of {} for commitment: {:?}", retrieved_chunks, TOTAL_SHARDS, commitment);
 
         if retrieved_chunks < REQUIRED_SHARDS {
             error!("Not enough chunks retrieved to reconstruct data");

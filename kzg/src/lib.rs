@@ -1,6 +1,7 @@
 mod kzg;
 mod utils;
 pub mod types;
+mod eth_ceremony;
 
 use ark_bls12_381::{Bls12_381, Fr, FrConfig, G1Projective as G1, G2Projective as G2};
 use ark_ec::PrimeGroup;
@@ -10,20 +11,19 @@ use common::{types::Chunk, constants::TOTAL_SHARDS};
 use types::{KzgCommitment, KzgProof};
 use kzg::KZG;
 use utils::interpolate;
-use utils::{load_ethereum_ceremony};
 use std::sync::OnceLock;
 use std::sync::Arc;
+use eth_ceremony::load_ethereum_ceremony;
 
 pub type KZGPolynomial = Vec<ark_ff::Fp<ark_ff::MontBackend<ark_bls12_381::FrConfig, 4>, 4>>;
 
 static KZG_INSTANCE: OnceLock<Arc<KZG<Bls12_381>>> = OnceLock::new();
-static PATH: &str = "../kzg/ethereum_ceremony.json";
 
 fn get_kzg_instance() -> Arc<KZG<Bls12_381>> {
     KZG_INSTANCE.get_or_init(|| {
         // Try to find the ethereum_ceremony.json file
         // Try to load from Ethereum ceremony file first
-        let kzg = match load_ethereum_ceremony(PATH, TOTAL_SHARDS - 1) {
+        let kzg = match load_ethereum_ceremony(TOTAL_SHARDS - 1) {
             Ok((crs_g1, crs_g2)) => {
                 // Use Ethereum's trusted setup ceremony data
                 let g1 = G1::generator();
@@ -32,7 +32,7 @@ fn get_kzg_instance() -> Arc<KZG<Bls12_381>> {
                     .expect("Failed to create KZG from Ethereum ceremony data")
             },
             Err(e) => {
-                panic!("Failed to load Ethereum ceremony data from {}: {}", PATH, e);
+                panic!("Failed to load Ethereum ceremony data: {}", e);
             }
         };
         Arc::new(kzg)

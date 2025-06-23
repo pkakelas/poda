@@ -69,7 +69,7 @@ pub async fn start_server<T: PodaClientTrait + Send + Sync + 'static>(
         .with(warp::cors().allow_any_origin());
 
     info!("🦀 Rust Dispenser API starting on port {}", port);
-    warp::serve(routes).run(([127, 0, 0, 1], port)).await;
+    warp::serve(routes).run(([0, 0, 0, 0], port)).await;
 }
 
 async fn handle_health_check() -> Result<impl warp::Reply, Infallible> {

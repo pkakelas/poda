@@ -24,4 +24,5 @@ merkle_tree = { version = "0.1.0", path = "../merkle_tree" }
 
 [dependencies]
 challenger = { version = "0.1.0", path = "../challenger" }
+client = { version = "0.1.0", path = "../client" }
 merkle_tree = { version = "0.1.0", path = "../merkle_tree" }

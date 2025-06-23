@@ -36,6 +36,11 @@ impl Challenger {
     pub async fn sample_challenges(&self, sample_size: usize) -> Result<Vec<Challenge>> {
         let commitment_list = self.pod.get_commitment_list().await?;
 
+        if commitment_list.is_empty() {
+            info!("No commitments found yet, skipping challenge sampling");
+            return Ok(vec![]);
+        }
+
         let mut samples: Vec<(FixedBytes<32>, u16)> = vec![];
 
         for _ in 0..sample_size {
@@ -71,6 +76,7 @@ impl Challenger {
 
     pub async fn slash_expired_challenges(&self) -> Result<()> {
         let challenges = self.pod.get_provider_expired_challenges(self.pod.address).await?;
+        info!("Found {} expired challenges", challenges.len());
         
         for challenge in challenges {
             let commitment = challenge.commitment;

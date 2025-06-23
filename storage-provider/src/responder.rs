@@ -18,6 +18,7 @@ pub async fn respond_to_active_challenges(file_storage: &FileStorage, pod: &Poda
         if chunk_with_proof.is_none() {
             error!("👺 Oooops, we lost a chunk {}, {}", commitment, chunk_id);
             error!("👺 We will not submit");
+            continue;
         }
         let (chunk, proof) = chunk_with_proof.unwrap();
 

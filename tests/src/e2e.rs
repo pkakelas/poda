@@ -2,9 +2,7 @@
 mod tests {
     use crate::setup;
 
-    use dispencer::{
-        http::{RetrieveDataRequest, RetrieveDataResponse, SubmitDataRequest, SubmitDataResponse}
-    };
+    use client::{health_check, retrieve_data, submit_data};
     use merkle_tree::MerkleProof;
     use pod::{client::{PodaClient, PodaClientTrait}, Address, FixedBytes, PrivateKeySigner, U256};
     use reqwest::Response;
@@ -19,12 +17,6 @@ mod tests {
     const RPC_URL: &str = "http://localhost:8545";
     const N_STORAGE_PROVIDERS: usize = 3;
 
-    async fn check_health(url: &str, path: &str) -> Result<Response, reqwest::Error> {
-        let client = reqwest::Client::new();
-        let url = format!("{}/{}", url, path);
-        client.get(&url).send().await
-    }
-
     async fn delete_provider_chunk(provider_url: &str, commitment: &FixedBytes<32>, chunks: &Vec<u16>) -> Result<Response, reqwest::Error> {
         let client = reqwest::Client::new();
         let url = format!("{}/delete", provider_url);
@@ -33,33 +25,6 @@ mod tests {
             "commitment": commitment,
             "indices": chunks
         })).send().await
-    }
-
-    async fn submit_data(dispencer_url: &str, data: &[u8]) -> Result<Response, reqwest::Error> {
-        let client = reqwest::Client::new();
-        let url = format!("{}/submit", dispencer_url);
-        let request_body = SubmitDataRequest {
-            data: data.to_vec(),
-        };
-
-        client.post(&url).json(&request_body).send().await
-    }
-
-    async fn retrieve_data(dispencer_url: &str, commitment: &FixedBytes<32>) -> Result<Vec<u8>> {
-        let client = reqwest::Client::new();
-        let url = format!("{}/retrieve", dispencer_url);
-        let request_body = RetrieveDataRequest {
-            commitment: commitment.clone(),
-        };
-
-        let response = client.post(&url).json(&request_body).send().await?;
-        let status = response.status();
-        let response_body: RetrieveDataResponse = response.json().await?;
-        if !status.is_success() || !response_body.success || response_body.data.is_none() {
-            return Err(anyhow::anyhow!(response_body.message));
-        }
-
-        Ok(response_body.data.unwrap())
     }
 
     async fn get_view_poda_client(poda_address: Address) -> PodaClient {
@@ -73,18 +38,16 @@ mod tests {
         let random_signer = PrivateKeySigner::random();
         let poda_client = PodaClient::new(random_signer, RPC_URL.to_string(), poda_address).await;
 
-        let health_response = check_health(&dispencer_handle.base_url, "health").await.unwrap();
-        if !health_response.status().is_success() {
-            panic!("Dispencer health check failed: {}", health_response.text().await.unwrap());
+        if health_check(dispencer_handle.base_url.clone()).await.is_err() {
+            panic!("Dispencer health check failed");
         }
 
         let providers = poda_client.get_providers().await.unwrap();
         for (i, provider) in providers.iter().enumerate() {
             let provider_url = provider.url.as_str();
             assert_eq!(*provider_url, storage_server_handles[i].base_url);
-            let response = check_health(provider_url, "health").await.unwrap();
-            if !response.status().is_success() {
-                panic!("Provider health check failed: {}", response.text().await.unwrap());
+            if health_check(provider_url.to_string()).await.is_err() {
+                panic!("Provider health check failed");
             }
         }
     }
@@ -98,11 +61,7 @@ mod tests {
 
         let data = b"hello, world".repeat(10);
 
-        let assignments = submit_data(&dispencer_handle.base_url, &data).await.unwrap();
-        if !assignments.status().is_success() {
-            panic!("Failed to submit data: {}", assignments.text().await.unwrap());
-        }
-        let result: SubmitDataResponse = assignments.json().await.unwrap();
+        let result = submit_data(&dispencer_handle.base_url, &data).await.unwrap();
 
         let (commitment_info, is_recoverable) = poda_client.get_commitment_info(result.commitment).await.unwrap();
         assert_eq!(commitment_info.availableChunks, TOTAL_SHARDS as u16);
@@ -130,15 +89,10 @@ mod tests {
 
         let data = b"hello, world".repeat(10);
 
-        let response = submit_data(&dispencer_handle.base_url, &data).await.unwrap();
-        if !response.status().is_success() {
-            panic!("Failed to submit data: {}", response.text().await.unwrap());
-        }
-        let result: SubmitDataResponse = response.json().await.unwrap();
+        let result = submit_data(&dispencer_handle.base_url, &data).await.unwrap();
 
-        let retrieve_data = retrieve_data(&dispencer_handle.base_url, &result.commitment).await.unwrap();
-
-        assert_eq!(retrieve_data, data);
+        let retrieved_data = retrieve_data(&dispencer_handle.base_url, &result.commitment).await.unwrap();
+        assert_eq!(retrieved_data.data.unwrap(), data);
     }
 
     #[tokio::test]
@@ -149,11 +103,7 @@ mod tests {
 
         let data = b"hello, world".repeat(10);
 
-        let response = submit_data(&dispencer_handle.base_url, &data).await.unwrap();
-        if !response.status().is_success() {
-            panic!("Failed to submit data: {}", response.text().await.unwrap());
-        }
-        let result: SubmitDataResponse = response.json().await.unwrap();
+        let result = submit_data(&dispencer_handle.base_url, &data).await.unwrap();
 
         let providers = poda_client.get_providers().await.unwrap();
         for (provider_name, chunks) in result.assignments.iter() {
@@ -162,9 +112,8 @@ mod tests {
             delete_provider_chunk(provider.url.as_str(), &result.commitment, &vec![*chunk_index]).await.unwrap();
         }
 
-        let retrieve_data = retrieve_data(&dispencer_handle.base_url, &result.commitment).await.unwrap();
-
-        assert_eq!(retrieve_data, data);
+        let retrieved_data = retrieve_data(&dispencer_handle.base_url, &result.commitment).await.unwrap();
+        assert_eq!(retrieved_data.data.unwrap(), data);
     }
 
     #[tokio::test]
@@ -175,11 +124,7 @@ mod tests {
 
         let data = b"hello, world".repeat(10);
 
-        let response = submit_data(&dispencer_handle.base_url, &data).await.unwrap();
-        if !response.status().is_success() {
-            panic!("Failed to submit data: {}", response.text().await.unwrap());
-        }
-        let result: SubmitDataResponse = response.json().await.unwrap();
+        let result = submit_data(&dispencer_handle.base_url, &data).await.unwrap();
 
         let providers = poda_client.get_providers().await.unwrap();
         let mut to_delete: usize = 9;
@@ -193,10 +138,10 @@ mod tests {
             }
         }
 
-        let retrieve_data = retrieve_data(&dispencer_handle.base_url, &result.commitment).await;
+        let retrieved_data = retrieve_data(&dispencer_handle.base_url, &result.commitment).await;
 
-        match retrieve_data {
-            Ok(data) => panic!("Retrieved data: {:?}", data),
+        match retrieved_data {
+            Ok(response) => panic!("Retrieved data: {:?}", response.data),
             Err(e) => assert_eq!(e.to_string(), "Failed to retrieve data: Not enough chunks retrieved to reconstruct data"),
         }
     }
@@ -310,8 +255,7 @@ mod tests {
         let challenger = challenger.unwrap();
 
         let data = b"hello, world".repeat(10);
-        let res = submit_data(&dispencer_handle.base_url, &data).await.unwrap();
-        let result: SubmitDataResponse = res.json().await.unwrap();
+        let result = submit_data(&dispencer_handle.base_url, &data).await.unwrap();
 
         let random_index = rand::random_range(0..storage_server_handles.len());
         let provider = storage_server_handles.get(random_index).unwrap();

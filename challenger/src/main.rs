@@ -15,7 +15,7 @@ fn load_config() -> (String, Address, String, usize, u64) {
     let poda_address = std::env::var("PODA_ADDRESS").unwrap().parse::<Address>().unwrap();
     let private_key = std::env::var("CHALLENGER_PRIVATE_KEY").unwrap();
     let sample_size = std::env::var("CHALLENGER_SAMPLE_SIZE").unwrap_or("10".to_string()).parse::<usize>().unwrap();
-    let interval = std::env::var("CHALLENGER_INTERVAL_SECS").unwrap_or("10".to_string()).parse::<u64>().unwrap();
+    let interval = std::env::var("CHALLENGER_INTERVAL_SECS").unwrap_or("60".to_string()).parse::<u64>().unwrap();
 
     (rpc_url, poda_address, private_key, sample_size, interval)
 }
