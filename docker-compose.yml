@@ -3,13 +3,13 @@ version: '3.8'
 services:
   dispenser:
     build:
-      context: ..
-      dockerfile: client/Dockerfile
+      context: .
+      dockerfile: Dockerfile
       target: runtime
     ports:
       - "8000:3000"
     env_file:
-      - .env
+      - localnet.env
     environment:
       - RUST_LOG=info
       - POD_RPC_URL=${RPC_URL}
@@ -21,11 +21,11 @@ services:
 
   challenger:
     build:
-      context: ..
-      dockerfile: client/Dockerfile
+      context: .
+      dockerfile: Dockerfile
       target: runtime
     env_file:
-      - .env
+      - localnet.env
     environment:
       - RUST_LOG=info
       - RPC_URL=${RPC_URL}
@@ -36,13 +36,13 @@ services:
 
   storage-provider-1:
     build:
-      context: ..
-      dockerfile: client/Dockerfile
+      context: .
+      dockerfile: Dockerfile
       target: runtime
     ports:
       - "8001:3000"
     env_file:
-      - .env
+      - localnet.env
     environment:
       - RUST_LOG=info
       - RPC_URL=${RPC_URL}
@@ -57,13 +57,13 @@ services:
 
   storage-provider-2:
     build:
-      context: ..
-      dockerfile: client/Dockerfile
+      context: .
+      dockerfile: Dockerfile
       target: runtime
     ports:
       - "8002:3000"
     env_file:
-      - .env
+      - localnet.env
     environment:
       - RUST_LOG=info
       - RPC_URL=${RPC_URL}
@@ -78,13 +78,13 @@ services:
 
   storage-provider-3:
     build:
-      context: ..
-      dockerfile: client/Dockerfile
+      context: .
+      dockerfile: Dockerfile
       target: runtime
     ports:
       - "8003:3000"
     env_file:
-      - .env
+      - localnet.env
     environment:
       - RUST_LOG=info
       - RPC_URL=${RPC_URL}

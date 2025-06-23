@@ -12,8 +12,8 @@ pub async fn submit_data(dispencer_url: &str, data: &[u8]) -> Result<SubmitDataR
 
     let res = client.post(&url).json(&request_body).send().await?;
     if !res.status().is_success() {
-        error!("Failed to submit data, status: {}", res.status());
-        return Err(anyhow::anyhow!("Failed to submit data, status: {}", res.status()));
+        let response: SubmitDataResponse = res.json().await?;
+        return Err(anyhow::anyhow!(response.message));
     }
 
     let response_body: SubmitDataResponse = res.json().await?;
@@ -29,8 +29,8 @@ pub async fn retrieve_data(dispencer_url: &str, commitment: &FixedBytes<32>) -> 
 
     let res = client.post(&url).json(&request_body).send().await?;
     if !res.status().is_success() {
-        error!("Failed to retrieve data, status: {}", res.status());
         let response: RetrieveDataResponse = res.json().await?;
+        error!("Failed to retrieve data: {}", response.message);
         return Err(anyhow::anyhow!(response.message));
     }
 

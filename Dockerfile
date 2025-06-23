@@ -21,10 +21,6 @@ COPY --from=builder /app/target/release/dispencer /app/dispencer
 COPY --from=builder /app/target/release/storage-provider /app/storage-provider
 COPY --from=builder /app/target/release/challenger /app/challenger
 
-# Create kzg directory and copy the ethereum ceremony data file
-RUN mkdir -p /app/kzg
-COPY --from=builder /app/kzg/ethereum_ceremony.json /app/kzg/ethereum_ceremony.json
-
 # Create data directory for storage providers
 RUN mkdir -p /data
 

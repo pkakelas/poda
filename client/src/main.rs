@@ -26,6 +26,7 @@ static DEFAULT_RPC_URL: &str = "http://localhost:8545";
 static DISPENCER_URL: &str = "http://localhost:8000";
 static DEFAULT_STORAGE_PROVIDER_STAKE: u128 = 1000000000000000000;
 static N_STORAGE_PROVIDERS: usize = 3; // DO NOT CHANGE THIS. IT MESSES UP EVERYTHING.
+static ENV_FILE_NAME: &str = "localnet.env";
 
 #[derive(Subcommand)]
 enum Commands {
@@ -44,6 +45,7 @@ enum Commands {
     },
     /// Submit data to the dispenser
     SubmitData {
+        // Bytes of data to submit
         data: Vec<u8>,
     },
     /// Retrieve data from the dispenser
@@ -57,6 +59,15 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    //TODO: Fix that path issue
+    let current_dir = std::env::current_dir()?;
+    let project_root = if current_dir.ends_with("client") {
+        current_dir.parent().unwrap().to_path_buf()
+    } else {
+        current_dir
+    };
+    let env_file_path = project_root.join(ENV_FILE_NAME);
+    
     init_logging();
     let cli = Cli::parse();
 
@@ -70,7 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match setup_result {
                 Ok(_) => {
                     info!("✅ Setup completed successfully!");
-                    info!("📁 Configuration saved to: .");
+                    info!("📁 Configuration saved to: {}", ENV_FILE_NAME);
                 }
                 Err(e) => {
                     error!("❌ Setup failed: {}", e);
@@ -80,6 +91,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::GetActiveChallenges { address } => {
             dotenv::dotenv().ok();
+            dotenv::from_filename(&env_file_path).ok();
 
             let poda_address = std::env::var("PODA_ADDRESS").unwrap();
             let signer = PrivateKeySigner::from_str(FAUCET_PRIVATE_KEY).unwrap();
@@ -89,6 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::ChunkChallenge { commitment, chunk_id, provider } => {
             dotenv::dotenv().ok();
+            dotenv::from_filename(&env_file_path).ok();
 
             let commitment: FixedBytes<32> = FixedBytes::from_str(commitment).unwrap();
             let poda_address = std::env::var("PODA_ADDRESS").unwrap();
@@ -200,11 +213,11 @@ async fn setup_poda_localnet(
         info!("  - Storage Provider {}: {} at {}", i, actor.address, format!("http://localhost:{}", 8001 + i as u16));
     }
 
-    info!("🔍 Generating .env file...");
+    info!("🔍 Generating {} file...", ENV_FILE_NAME);
     let storage_provider_private_keys = actors[2..N_STORAGE_PROVIDERS + 2].iter().map(|actor| actor.private_key.clone()).collect();
     let regenerate_env_file = generate_env_file(FAUCET_PRIVATE_KEY, FAUCET_PRIVATE_KEY, poda_address, &storage_provider_private_keys).await;
     if regenerate_env_file.is_err() {
-        error!("Failed to generate .env file: {:?}", regenerate_env_file.err());
+        error!("Failed to generate {} file: {:?}", ENV_FILE_NAME, regenerate_env_file.err());
     }
 
     Ok(())
@@ -231,6 +244,14 @@ STORAGE_PROVIDER_3_PRIVATE_KEY={}     ",
         storage_provider_private_keys[2]
     );
 
-    fs::write(".env", env_file)?;
+    let current_dir = std::env::current_dir()?;
+    let project_root = if current_dir.ends_with("client") {
+        current_dir.parent().unwrap().to_path_buf()
+    } else {
+        current_dir
+    };
+    let env_file_path = project_root.join(ENV_FILE_NAME);
+    
+    fs::write(env_file_path, env_file)?;
     Ok(())
 }

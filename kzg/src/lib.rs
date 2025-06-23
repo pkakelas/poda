@@ -22,11 +22,8 @@ static KZG_INSTANCE: OnceLock<Arc<KZG<Bls12_381>>> = OnceLock::new();
 
 fn get_kzg_instance() -> Arc<KZG<Bls12_381>> {
     KZG_INSTANCE.get_or_init(|| {
-        // Try to find the ethereum_ceremony.json file
-        // Try to load from Ethereum ceremony file first
         let kzg = match load_ethereum_ceremony(TOTAL_SHARDS - 1) {
             Ok((crs_g1, crs_g2)) => {
-                // Use Ethereum's trusted setup ceremony data
                 let g1 = G1::generator();
                 let g2 = G2::generator();
                 KZG::<Bls12_381>::from_trusted_setup(g1, g2, TOTAL_SHARDS - 1, crs_g1, crs_g2)
