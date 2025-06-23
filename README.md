@@ -220,9 +220,9 @@ curl http://localhost:8000/health
 ## Acknowledgements
 
 - To [@eerkaijun](https://github.com/eerkaijun/) for their [KZG implementation](https://github.com/eerkaijun).
-- To [pod](http://pod.network/) for [their Merkle Tree implementation](https://github.com/podnetwork/pod-sdk/blob/b84242de1d6c2a874d1bd01b3f8e463416ac8bdd/types/src/cryptography/merkle_tree.rs#L215)
-- To my mom
-- To my dad
+- To [pod](http://pod.network/) for [their Merkle Tree implementation](https://github.com/podnetwork/pod-sdk/blob/b84242de1d6c2a874d1bd01b3f8e463416ac8bdd/types/src/cryptography/merkle_tree.rs#L215).
+- To my mom.
+- To my dad.
 
 ## License
 
