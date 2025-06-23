@@ -2,17 +2,12 @@
 pub mod setup {
     #[cfg(test)]
     use {challenger::challenger::Challenger};
-    use serde::Deserialize; 
     use dispencer::dispenser::Dispenser;
+    use client::{get_actors, get_provider_for_signer};
     use pod::{
         client::{PodaClient, PodaClientTrait},
         Address,
-        EthereumWallet,
-        PodProvider,
-        PodProviderBuilder,
         PrivateKeySigner,
-        Provider,
-        U256
     };
     use common::{
         constants::ONE_ETH,
@@ -31,13 +26,6 @@ pub mod setup {
     pub struct ServerHandle {
         _temp_dir: Option<TempDir>,
         _shutdown_tx: oneshot::Sender<()>,
-    }
-
-    #[cfg(test)]
-    #[derive(Deserialize, Debug)]
-    pub struct Actor {
-        address: Address,
-        private_key: String,
     }
 
     #[cfg(test)]
@@ -72,6 +60,8 @@ pub mod setup {
     // n_actors: Number of actors in setup. 1 will be dispencer, the rest will be storage providers
     #[cfg(test)]
     pub async fn setup_pod(n_storage_providers: usize, rpc_url: &str, with_challenger: bool) -> Setup {
+        use client::faucet_if_needed;
+
         INIT.call_once(|| {
             init_logging();
         });
@@ -86,7 +76,7 @@ pub mod setup {
 
         let actors = get_actors();
         info!("Fauceting actors");
-        faucet_if_needed(faucet, &actors).await;
+        faucet_if_needed(&faucet, &actors).await;
 
         let mut clients: Vec<PodaClient> = Vec::new();
         for actor in actors.iter() {
@@ -129,37 +119,6 @@ pub mod setup {
             dispencer_handle,
             storage_server_handles,
             challenger,
-        }
-    }
-
-    #[cfg(test)]
-    pub async fn get_provider_for_signer(signer: PrivateKeySigner, rpc_url: &str) -> PodProvider {
-        PodProviderBuilder::with_recommended_settings()
-            .wallet(EthereumWallet::new(signer))
-            .on_url(rpc_url.to_string())
-            .await
-            .expect("Failed to create provider")
-    }
-
-    #[cfg(test)]
-    pub fn get_actors() -> Vec<Actor> {
-        let actors = std::fs::read_to_string("src/actors.json").unwrap();
-        let actors: Vec<Actor> = serde_json::from_str(&actors).unwrap();
-        actors
-    }
-
-    #[cfg(test)]
-    async fn faucet_if_needed(faucet: PodProvider, actors: &Vec<Actor>) -> () {
-        for actor in actors {
-            let min_balance = U256::from(ONE_ETH) * U256::from(1.5); // 100 eth
-            let balance = faucet.get_balance(actor.address).await.unwrap();
-
-            if balance < min_balance {
-                faucet.transfer(actor.address, U256::from(ONE_ETH)).await.unwrap();
-            }
-
-            let balance = faucet.get_balance(actor.address).await.unwrap();
-            info!("balance of actor {:?} is {:?}", actor.address, balance);
         }
     }
 
