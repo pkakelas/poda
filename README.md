@@ -14,7 +14,7 @@ Poda is a POC of a decentralized storage network build on Pod. It's designed to 
 
 Poda operates as a decentralized storage network with three main components that work together to ensure reliable data storage and retrieval:
 
-### Core Components & Their Roles
+### Core components
 
 #### **Dispenser** (`dispencer/`)
 The dispenser serves as the data orchestrator that handles all client interactions and coordinates the storage process. It receives data from clients and validates input requirements before performing erasure coding to split data into 24 chunks. The dispenser generates cryptographic proofs including KZG commitments and Merkle trees, then submits commitments to the smart contract on behalf of clients. It distributes chunks to storage providers with cryptographic proofs and manages chunk assignments using stake-weighted provider selection. When clients request data, the dispenser retrieves chunks from multiple providers and reconstructs the original data.
@@ -58,9 +58,9 @@ The challenger functions as the data availability monitor that ensures storage p
 8. **Smart Contract** either accepts response (updates provider success count) or slashes provider stake (0.1 ETH penalty)
 9. **Smart Contract** distributes slashing bounty to **Challenger** if verification fails
 
-## Architecture
+## Crates
 
-Poda consists of several components:
+Poda consists of several crates:
 
 ### Pod Smart Contract (`contracts/`)
 The core Pod smart contract that manages:
@@ -119,15 +119,13 @@ The core Pod smart contract that manages:
 - Logging utilities
 - Common data structures
 
-## Key Parameters
-
-All of the constants below are subject to change.
+## Key Parameters (Subject to change)
 
 - **Required Chunks**: 16 (minimum needed for recovery)
 - **Total Chunks**: 24 (1.5x redundancy ratio)
 - **Challenge Period**: 1 hour
 - **Challenge Penalty**: 0.1 ETH
-- **Minimum Stake**: Configurable (default 1 ETH)
+- **Minimum Stake**: 1 ETH
 
 ## Getting Started
 
@@ -216,7 +214,12 @@ curl http://localhost:8000/health
 ```
 
 ## Acknowledgements
+
 - To [@eerkaijun](https://github.com/eerkaijun/) for their [KZG implementation](https://github.com/eerkaijun).
 - To [pod](http://pod.network/) for [their Merkle Tree implementation](https://github.com/podnetwork/pod-sdk/blob/b84242de1d6c2a874d1bd01b3f8e463416ac8bdd/types/src/cryptography/merkle_tree.rs#L215)
 - To my mom
 - To my dad
+
+## License
+
+This project is licensed under the GNU General Public License v3.0 - see the [LICENSE.md](LICENSE.md) file for details. 
