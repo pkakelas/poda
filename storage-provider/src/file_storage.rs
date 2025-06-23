@@ -5,7 +5,6 @@ use anyhow::Result;
 use merkle_tree::MerkleProof;
 use pod::FixedBytes;
 use serde::{Deserialize, Serialize};
-use serde_json;
 use async_trait::async_trait;
 use common::types::Chunk;
 use crate::storage::ChunkStorageTrait;

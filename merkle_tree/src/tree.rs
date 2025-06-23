@@ -28,15 +28,11 @@ impl Deref for StandardMerkleTree {
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct MerkleProof {
     pub path: Vec<Hash>,
 }
 
-impl Default for MerkleProof {
-    fn default() -> Self {
-        Self { path: vec![] }
-    }
-}
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct MerkleMultiProof {

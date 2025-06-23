@@ -31,7 +31,6 @@ pub const G1_COMPRESSED_SIZE: usize = 48;
 /// assert_eq!(commitment.into_inner(), reconstructed_commitment.into_inner());
 /// ```
 // Generic G1 serialization helper
-
 mod g1_serde {
     use super::*;
     use serde::{Serializer, Deserializer};

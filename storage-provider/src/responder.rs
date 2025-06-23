@@ -9,8 +9,7 @@ pub async fn respond_to_active_challenges(file_storage: &FileStorage, pod: &Poda
     let challenges = pod.get_provider_active_challenges(my_address).await?;
     info!("🕵️‍♂️ Found {} active challenges", challenges.len());
 
-    for i in 0..challenges.len() {
-        let challenge = &challenges[i];
+    for challenge in challenges {
         let commitment = challenge.commitment;
         let chunk_id = challenge.chunkId;
 

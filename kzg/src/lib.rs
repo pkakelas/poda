@@ -11,6 +11,7 @@ use common::{types::Chunk, constants::TOTAL_SHARDS};
 use types::{KzgCommitment, KzgProof};
 use kzg::KZG;
 use utils::interpolate;
+use std::cmp::Ordering;
 use std::sync::OnceLock;
 use std::sync::Arc;
 use eth_ceremony::load_ethereum_ceremony;
@@ -51,7 +52,7 @@ pub fn kzg_commit(chunks: &Vec<Chunk>) -> (KzgCommitment, KZGPolynomial) {
     let polynomial = gen_polynomial(chunks, get_kzg_instance().degree);
     let commitment = get_kzg_instance().commit(&polynomial);
 
-    return (KzgCommitment::new(commitment), polynomial);
+    (KzgCommitment::new(commitment), polynomial)
 }
 
 pub fn kzg_prove(chunks: &Vec<Chunk>, chunk_index: usize) -> KzgProof {
@@ -117,10 +118,10 @@ fn gen_polynomial(data: &Vec<Chunk>, degree: usize) -> Vec<Fp<MontBackend<FrConf
     let mut interpolated_poly = interpolate(&points, &all_field_elements).unwrap();
     
     // Ensure polynomial fits within KZG degree
-    if interpolated_poly.len() > degree + 1 {
-        interpolated_poly.truncate(degree + 1);
-    } else if interpolated_poly.len() < degree + 1 {
-        interpolated_poly.resize(degree + 1, Fr::ZERO);
+    match interpolated_poly.len().cmp(&(degree + 1)) {
+        Ordering::Greater => interpolated_poly.truncate(degree + 1),
+        Ordering::Less => interpolated_poly.resize(degree + 1, Fr::ZERO),
+        Ordering::Equal => (),
     }
 
     interpolated_poly

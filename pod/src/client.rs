@@ -149,14 +149,14 @@ impl PodaClientTrait for PodaClient {
     // =============================================================================
     async fn get_providers(&self) -> Result<Vec<ProviderInfo>> {
         let providers = self.contract.getProviders(false).call().await?;
-        let info = providers._0.iter().map(|p| p.clone()).collect();
+        let info = providers._0.to_vec();
 
         Ok(info)
     }
 
     async fn get_eligible_providers(&self) -> Result<Vec<ProviderInfo>> {
         let providers = self.contract.getProviders(true).call().await?;
-        let info = providers._0.iter().map(|p| p.clone()).collect();
+        let info = providers._0.to_vec();
         Ok(info)
     }
 
@@ -216,7 +216,7 @@ impl PodaClientTrait for PodaClient {
 
     async fn get_provider_expired_challenges(&self, provider: Address) -> Result<Vec<ChallengeInfo>> {
         let challenges = self.contract.getProviderExpiredChallenges(provider).call().await?;
-        let challenges = challenges._0.iter().map(|c| c.clone()).collect::<Vec<_>>();
+        let challenges = challenges._0.to_vec();
         Ok(challenges)
     }
 
@@ -237,7 +237,7 @@ impl PodaClientTrait for PodaClient {
 
     async fn get_provider_active_challenges(&self, provider: Address) -> Result<Vec<ChallengeInfo>> {
         let challenges = self.contract.getProviderActiveChallenges(provider).call().await?;
-        let challenges = challenges._0.iter().map(|c| c.clone()).collect::<Vec<_>>();
+        let challenges = challenges._0.to_vec();
         Ok(challenges)
     }
 
@@ -362,7 +362,7 @@ mod tests {
             .await
             .expect("Failed to register provider");
 
-        return pod;
+        pod
     }
 
     #[tokio::test]

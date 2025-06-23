@@ -24,7 +24,7 @@ pub async fn retrieve_data(dispencer_url: &str, commitment: &FixedBytes<32>) -> 
     let client = reqwest::Client::new();
     let url = format!("{}/retrieve", dispencer_url);
     let request_body = RetrieveDataRequest {
-        commitment: commitment.clone(),
+        commitment: *commitment,
     };
 
     let res = client.post(&url).json(&request_body).send().await?;
@@ -35,5 +35,5 @@ pub async fn retrieve_data(dispencer_url: &str, commitment: &FixedBytes<32>) -> 
     }
 
     let response_body: RetrieveDataResponse = res.json().await?;
-    return Ok(response_body);
+    Ok(response_body)
 }

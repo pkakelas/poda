@@ -60,7 +60,7 @@ impl Challenger {
             }
 
             let res =  self.pod.issue_chunk_challenge(commitment, chunk_id, provider_address).await;
-            if !res.is_ok() {
+            if res.is_err() {
                 warn!("Issuing chunk challenge failed. It's probably already issued");
                 continue
             }

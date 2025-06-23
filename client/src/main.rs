@@ -12,7 +12,6 @@ use crate::utils::health_check;
 use pod::client::PodaClientTrait;
 use pod::{client::PodaClient, Address, PrivateKeySigner};
 use std::{fs, str::FromStr};
-use tokio;
 
 #[derive(Parser)]
 #[command(name = "poda-localnet")]
@@ -83,7 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             dotenv::dotenv().ok();
 
             let poda_address = std::env::var("PODA_ADDRESS").unwrap();
-            let signer = PrivateKeySigner::from_str(&FAUCET_PRIVATE_KEY).unwrap();
+            let signer = PrivateKeySigner::from_str(FAUCET_PRIVATE_KEY).unwrap();
             let poda_client = PodaClient::new(signer, DEFAULT_RPC_URL.to_string(), Address::from_str(&poda_address).unwrap()).await;
             let challenges = poda_client.get_provider_active_challenges(*address).await.unwrap();
             info!("🔍 Active challenges: {:?}", challenges);
@@ -93,7 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let commitment: FixedBytes<32> = FixedBytes::from_str(commitment).unwrap();
             let poda_address = std::env::var("PODA_ADDRESS").unwrap();
-            let signer = PrivateKeySigner::from_str(&FAUCET_PRIVATE_KEY).unwrap();
+            let signer = PrivateKeySigner::from_str(FAUCET_PRIVATE_KEY).unwrap();
             let poda_client = PodaClient::new(signer, DEFAULT_RPC_URL.to_string(), Address::from_str(&poda_address).unwrap()).await;
             let challenge = poda_client.get_chunk_challenge(commitment, *chunk_id, *provider).await.unwrap();
             info!("🔍 Challenge: {:?}", challenge);

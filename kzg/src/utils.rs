@@ -63,8 +63,8 @@ pub fn div<E:Field>(p1: &[E], p2: &[E]) -> Result<Vec<E>, &'static str> {
 pub fn evaluate<E:Field>(poly: &[E], point: E) -> E {
     let mut value = E::ZERO;
 
-    for i in 0..poly.len() {
-        value += poly[i] * point.pow(&[i as u64]);
+    for (i, coeff) in poly.iter().enumerate() {
+        value += *coeff * point.pow([i as u64]);
     }
 
     value

@@ -26,7 +26,7 @@ impl<T: PodaClientTrait> Dispenser<T> {
         if data.len() < MIN_DATA_SIZE {
             return Err(anyhow::anyhow!("Data size is too small. Must be at least {} bytes", MIN_DATA_SIZE));
         }
-        let storage_providers = self.pod.get_providers().await?.iter().map(|p| p.clone()).collect::<Vec<_>>();
+        let storage_providers = self.pod.get_providers().await?.to_vec();
         let chunks = self.erasure_encode(data, REQUIRED_SHARDS, TOTAL_SHARDS);
         let merkle_tree = gen_merkle_tree(&chunks);
 
@@ -72,7 +72,7 @@ impl<T: PodaClientTrait> Dispenser<T> {
             return Err(anyhow::anyhow!("Commitment is not recoverable"));
         }
 
-        let storage_providers = self.pod.get_providers().await?.iter().map(|p| p.clone()).collect::<Vec<_>>();
+        let storage_providers = self.pod.get_providers().await?.to_vec();
 
         const NO_CHUNK: Option<Chunk> = None;
         let mut chunks = [NO_CHUNK; TOTAL_SHARDS];
@@ -153,11 +153,11 @@ impl<T: PodaClientTrait> Dispenser<T> {
         let mut reconstructed_chunks: Vec<Chunk> = Vec::new();
         let mut decoded = Vec::new();
         
-        for i in 0..required_shards {
-            if let Some(data) = &shards[i] {
+        for (i, shard) in shards.iter().enumerate().take(required_shards) {
+            if let Some(data) = shard {
                 let chunk = Chunk {
                     index: i as u16,
-                    data: data.clone(),
+                    data: data.to_owned(),
                 };
 
                 reconstructed_chunks.push(chunk);
@@ -173,11 +173,11 @@ impl<T: PodaClientTrait> Dispenser<T> {
         Ok((decoded, reconstructed_chunks))
     }
 
-    async fn batch_retrieve_from_provider(&self, commitment: FixedBytes<32>, chunk_ids: &Vec<u16>, storage_provider: &ProviderInfo) -> Result<Vec<Option<Chunk>>> {
+    async fn batch_retrieve_from_provider(&self, commitment: FixedBytes<32>, chunk_ids: &[u16], storage_provider: &ProviderInfo) -> Result<Vec<Option<Chunk>>> {
         let url = format!("{}/batch-retrieve", storage_provider.url);
         let body = BatchRetrieveRequest {
             commitment,
-            indices: chunk_ids.clone(),
+            indices: chunk_ids.to_owned()
         };
 
         let response = reqwest::Client::new().post(url).json(&body).send().await?;
@@ -224,7 +224,7 @@ impl<T: PodaClientTrait> Dispenser<T> {
             let provider = self.select_provider_for_chunk(
                 &chunk.hash(), 
                 chunk.index, 
-                &providers,
+                providers,
                 total_stake
             ).unwrap();
 
@@ -280,7 +280,7 @@ impl<T: PodaClientTrait> Dispenser<T> {
 
     fn split_to_chunks(&self, data: &[u8], data_shards: usize) -> Vec<Vec<u8>> {
         // Calculate chunk size, ensuring it's even
-        let mut chunk_size = (data.len() + data_shards - 1) / data_shards;
+        let mut chunk_size = data.len().div_ceil(data_shards);
         if chunk_size % 2 != 0 {
             chunk_size += 1;
         }
@@ -360,7 +360,7 @@ mod tests {
 
         // Test decoding with all chunks
         let shards: Vec<Option<Chunk>> = chunks.into_iter()
-            .map(|chunk| Some(chunk))
+            .map(Some)
             .collect();
         
         let (decoded, reconstructed_chunks) = dispenser.erasure_decode(shards, REQUIRED_SHARDS, TOTAL_SHARDS, original_data.len()).unwrap();

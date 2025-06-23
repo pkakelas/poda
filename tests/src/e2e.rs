@@ -130,7 +130,7 @@ mod tests {
         let mut to_delete: usize = 9;
         for (provider_name, chunks) in result.assignments.iter() {
             let provider = providers.iter().find(|p| p.name == *provider_name).unwrap();
-            let to_delete_chunks = chunks.iter().take(to_delete).map(|c| *c).collect::<Vec<_>>();
+            let to_delete_chunks = chunks.iter().take(to_delete).copied().collect::<Vec<_>>();
             delete_provider_chunk(provider.url.as_str(), &result.commitment, &to_delete_chunks).await.unwrap();
             to_delete -= to_delete_chunks.len();
             if to_delete == 0 {
@@ -191,26 +191,26 @@ mod tests {
         for chunk in &chunks {
             let proof = merkle_tree::gen_proof(&tree, chunk.clone()).unwrap();
             let result = dispencer_handle.dispencer.pod.verify_chunk_proof(proof.path.clone(), root, chunk.index, chunk.data.clone().into()).await.unwrap();
-            assert_eq!(result, true);
+            assert!(result);
         }
 
         let invalid_proof = MerkleProof {
             path: vec![tree.root()],
         };
         let result = dispencer_handle.dispencer.pod.verify_chunk_proof(invalid_proof.path.clone(), root, 0, chunks[0].clone().data.into()).await.unwrap();
-        assert_eq!(result, false);
+        assert!(!result);
 
         let proof = merkle_tree::gen_proof(&tree, chunks[0].clone()).unwrap();
         let result = dispencer_handle.dispencer.pod.verify_chunk_proof(proof.path.clone(), root, 1, chunks[0].clone().data.into()).await.unwrap();
-        assert_eq!(result, false);
+        assert!(!result);
 
         let proof = merkle_tree::gen_proof(&tree, chunks[0].clone()).unwrap();
         let result = dispencer_handle.dispencer.pod.verify_chunk_proof(proof.path.clone(), root, 0, chunks[1].clone().data.into()).await.unwrap();
-        assert_eq!(result, false);
+        assert!(!result);
 
         let proof = merkle_tree::gen_proof(&tree, chunks[0].clone()).unwrap();
         let result = dispencer_handle.dispencer.pod.verify_chunk_proof(proof.path.clone(), root, 0, chunks[0].clone().data.into()).await.unwrap();
-        assert_eq!(result, true);
+        assert!(result);
     }
 
     #[tokio::test]
@@ -275,12 +275,12 @@ mod tests {
         }
 
         let (commitment_info, is_recoverable) = provider.pod.get_commitment_info(result.commitment).await.unwrap();
-        assert_eq!(commitment_info.availableChunks, commitment_info.totalChunks as u16 - 1);
-        assert_eq!(is_recoverable, true);
+        assert_eq!(commitment_info.availableChunks, commitment_info.totalChunks - 1);
+        assert!(is_recoverable);
 
         let provider_info = provider.pod.get_provider_info(provider.owner_address).await.unwrap();
         assert_eq!(provider_info.stakedAmount, U256::from(ONE_ETH) - U256::from(ONE_ETH / 10));
-        assert_eq!(provider_info.active, true);
+        assert!(provider_info.active);
         assert_eq!(provider_info.challengeSuccessCount, provider_info.challengeCount - 1);
     }
 }

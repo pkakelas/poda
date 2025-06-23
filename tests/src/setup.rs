@@ -149,7 +149,7 @@ pub mod setup {
         let base_url = format!("http://localhost:{}", port);
 
         DispencerHandle {
-            base_url: base_url,
+            base_url,
             server: ServerHandle {
                 _temp_dir: None,
                 _shutdown_tx: shutdown_tx,

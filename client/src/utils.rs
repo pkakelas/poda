@@ -49,7 +49,7 @@ pub fn get_actors() -> Vec<Actor> {
     ]
 }
 
-pub async fn faucet_if_needed(faucet: &PodProvider, actors: &Vec<Actor>) -> () {
+pub async fn faucet_if_needed(faucet: &PodProvider, actors: &Vec<Actor>) {
     for actor in actors {
         let min_balance = U256::from(ONE_ETH) * U256::from(1.5);
         let balance = faucet.get_balance(actor.address).await.unwrap();

@@ -12,7 +12,6 @@ use common::{
     log::{info, debug, error},
     types::Chunk
 };
-use hex;
 
 #[derive(Debug, Deserialize)]
 struct StoreRequest {
@@ -275,7 +274,7 @@ async fn handle_batch_retrieve<T: ChunkStorageTrait>(
     }
 
     Ok(warp::reply::with_status(
-        warp::reply::json(&BatchRetrieveResponse { chunks: chunks, proofs: proofs }),
+        warp::reply::json(&BatchRetrieveResponse { chunks, proofs }),
         warp::http::StatusCode::OK,
     ))
 }
@@ -437,7 +436,7 @@ async fn handle_batch_store<T: ChunkStorageTrait>(
     }
 
     for (chunk, merkle_proof) in request.chunks.iter().zip(request.merkle_proofs.iter()) {
-        let is_valid = merkle_tree::verify_proof(request.commitment, &chunk, merkle_proof.clone());
+        let is_valid = merkle_tree::verify_proof(request.commitment, chunk, merkle_proof.clone());
         debug!("Merkle proof verification result for chunk {:?}: {:?}", chunk.index, is_valid);
         if !is_valid {
             return Ok(warp::reply::with_status(
@@ -468,7 +467,7 @@ async fn handle_batch_store<T: ChunkStorageTrait>(
     }
 
     for (chunk, merkle_proof) in request.chunks.iter().zip(request.merkle_proofs.iter()) {
-        match storage.store(request.commitment, &chunk, &merkle_proof).await {
+        match storage.store(request.commitment, chunk, merkle_proof).await {
             Ok(_) => {
             }
             Err(e) => {
@@ -483,7 +482,7 @@ async fn handle_batch_store<T: ChunkStorageTrait>(
         }
     }
 
-    let indices = request.chunks.iter().map(|c| c.index as u16).collect::<Vec<_>>();
+    let indices = request.chunks.iter().map(|c| c.index).collect::<Vec<_>>();
     info!("Submitting chunk attestation for indices: {:?}", indices);
     let res = pod.submit_chunk_attestations(request.commitment, indices).await;
     if res.is_err() {

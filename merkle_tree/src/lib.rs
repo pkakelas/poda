@@ -48,7 +48,7 @@ mod tests {
 
         for chunk in chunks {
             let proof = gen_proof(&merkle_tree, chunk.clone()).unwrap();
-            assert_eq!(verify_proof(merkle_tree.root(), &chunk, proof), true);
+            assert!(verify_proof(merkle_tree.root(), &chunk, proof));
         }
     }
 
@@ -58,6 +58,6 @@ mod tests {
         let merkle_tree = gen_merkle_tree(&chunks);
 
         let proof = gen_proof(&merkle_tree, chunks[0].clone()).unwrap();
-        assert_eq!(verify_proof(merkle_tree.root(), &chunks[1], proof), false);
+        assert!(!verify_proof(merkle_tree.root(), &chunks[1], proof));
     }
 }

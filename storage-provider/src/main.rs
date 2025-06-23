@@ -33,7 +33,7 @@ pub async fn main() {
     let storage = Arc::new(storage);
 
     let signer = PrivateKeySigner::from_str(&private_key).unwrap();
-    let my_address = signer.address().clone();
+    let my_address = signer.address();
 
     let pod = PodaClient::new(signer, rpc_url.clone(), poda_address).await;
     let pod = Arc::new(pod);

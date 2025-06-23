@@ -3,6 +3,7 @@ use ark_ff::Field;
 use ark_ec::pairing::Pairing;
 use crate::utils::{div, mul, evaluate, interpolate};
 
+#[allow(clippy::upper_case_acronyms)]
 pub struct KZG<E: Pairing> {
     pub g1: E::G1,
     pub g2: E::G2,
@@ -61,16 +62,16 @@ impl <E:Pairing> KZG<E> {
     #[allow(dead_code)]
     pub fn setup(&mut self, secret: E::ScalarField) {
         for i in 0..self.degree+1 {
-            self.crs_g1.push(self.g1.mul(secret.pow(&[i as u64])));
-            self.crs_g2.push(self.g2.mul(secret.pow(&[i as u64])));
+            self.crs_g1.push(self.g1.mul(secret.pow([i as u64])));
+            self.crs_g2.push(self.g2.mul(secret.pow([i as u64])));
         }
         self.g2_tau = self.g2.mul(secret);
     }
 
     pub fn commit(&self, poly: &[E::ScalarField]) -> E::G1 {
         let mut commitment = self.g1.mul(E::ScalarField::default());
-        for i in 0..self.degree+1 {
-            commitment += self.crs_g1[i] * poly[i];
+        for (i, coeff) in poly.iter().enumerate().take(self.degree+1) {
+            commitment += self.crs_g1[i] * coeff;
         }
         commitment
     }
@@ -93,8 +94,8 @@ impl <E:Pairing> KZG<E> {
 
         // calculate pi as proof (quotient multiplied by CRS)
         let mut pi = self.g1.mul(E::ScalarField::default());
-        for i in 0..quotient.len() {
-            pi += self.crs_g1[i] * quotient[i];
+        for (i, quo) in quotient.iter().enumerate() {
+            pi += self.crs_g1[i] * quo;
         }
 
         // return pi
@@ -104,14 +105,14 @@ impl <E:Pairing> KZG<E> {
     pub fn multi_open(&self, poly: &[E::ScalarField], points: &[E::ScalarField]) -> E::G1 {
         // denominator is a polynomial where all its root are points to be evaluated (zero poly)
         let mut zero_poly = vec![-points[0], E::ScalarField::ONE];
-        for i in 1..points.len() {
-            zero_poly = mul(&zero_poly, &[-points[i], E::ScalarField::ONE]);
+        for point in points.iter().skip(1) {
+            zero_poly = mul(&zero_poly, &[-*point, E::ScalarField::ONE]);
         }
 
         // perform Lagrange interpolation on points
         let mut values = vec![];
-        for i in 0..points.len() {
-            values.push(evaluate(poly, points[i]));
+        for point in points {
+            values.push(evaluate(poly, *point));
         }
         let mut lagrange_poly = interpolate(points, &values).unwrap();
         lagrange_poly.resize(poly.len(), E::ScalarField::default()); // pad with zeros
@@ -127,8 +128,8 @@ impl <E:Pairing> KZG<E> {
 
         // calculate pi as proof (quotient multiplied by CRS)
         let mut pi = self.g1.mul(E::ScalarField::default());
-        for i in 0..quotient.len() {
-            pi += self.crs_g1[i] * quotient[i];
+        for (i, quo) in quotient.iter().enumerate() {
+            pi += self.crs_g1[i] * *quo;
         }
 
         // return pi
@@ -156,23 +157,23 @@ impl <E:Pairing> KZG<E> {
     ) -> bool {
         // compute the zero polynomial
         let mut zero_poly = vec![-points[0], E::ScalarField::ONE];
-        for i in 1..points.len() {
-            zero_poly = mul(&zero_poly, &[-points[i], E::ScalarField::ONE]);
+        for point in points.iter().skip(1) {
+            zero_poly = mul(&zero_poly, &[-*point, E::ScalarField::ONE]);
         }
 
         // compute commitment of zero polynomial in regards to crs_g2
         let mut zero_commitment = self.g2.mul(E::ScalarField::default());
-        for i in 0..std::cmp::min(zero_poly.len(), self.crs_g2.len()) {
-            zero_commitment += self.crs_g2[i] * zero_poly[i];
+        for (i, coeff) in zero_poly.iter().enumerate().take(self.crs_g2.len()) {
+            zero_commitment += self.crs_g2[i] * coeff;
         }
 
         // compute lagrange polynomial
-        let lagrange_poly = interpolate(points, &values).unwrap();
+        let lagrange_poly = interpolate(points, values).unwrap();
 
         // compute commitment of lagrange polynomial in regards to crs_g1
         let mut lagrange_commitment = self.g1.mul(E::ScalarField::default());
-        for i in 0..std::cmp::min(lagrange_poly.len(), self.crs_g1.len()) {
-            lagrange_commitment += self.crs_g1[i] * lagrange_poly[i];
+        for (i, coeff) in lagrange_poly.iter().enumerate().take(std::cmp::min(lagrange_poly.len(), self.crs_g1.len())) {
+            lagrange_commitment += self.crs_g1[i] * coeff;
         }
 
         let lhs = E::pairing(pi, zero_commitment);
